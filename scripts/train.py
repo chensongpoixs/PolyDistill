@@ -4,20 +4,23 @@
 流程：train → 快速推理对比 → 全量评测 → 输出报告
 
 用法：
-  python inference.py                     # 完整流水线
-  python inference.py --config prod.yaml  # 指定配置文件
-  python inference.py --skip-eval         # 跳过全量评测（仅做快速推理对比）
-  python inference.py --eval-only         # 仅评测已有模型（不重新训练）
+  python scripts/train.py                     # 完整流水线
+  python scripts/train.py --config prod.yaml  # 指定配置文件
+  python scripts/train.py --skip-eval         # 跳过全量评测（仅做快速推理对比）
+  python scripts/train.py --eval-only         # 仅评测已有模型（不重新训练）
 """
 
 import argparse
+import logging
 
 import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, PreTrainedTokenizer
 
-from config import Config, load_config
-from train import train
+from poly_distill.config import Config, load_config
+from poly_distill.trainer import train
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -32,7 +35,7 @@ def quick_compare(config: Config, tokenizer: PreTrainedTokenizer) -> None:
         "解释CNN中的感受野（Receptive Field）概念，在设计视频降噪网络时，感受野大小如何影响去噪效果？"
     )
 
-    print("\n=== ⚔️ 快速推理对比 ⚔️ ===\n")
+    logger.info("=== 快速推理对比 ===")
 
     base_model = AutoModelForCausalLM.from_pretrained(
         config.MODEL_ID,
@@ -42,11 +45,11 @@ def quick_compare(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     )
 
     base_answer = _generate(base_model, tokenizer, test_question)
-    print(f"🔴 Base 模型:\n{base_answer}\n")
+    logger.info("Base 模型:\n%s", base_answer)
 
     distilled_model = PeftModel.from_pretrained(base_model, config.OUTPUT_DIR)
     lora_answer = _generate(distilled_model, tokenizer, test_question)
-    print(f"🟢 LoRA 模型:\n{lora_answer}\n")
+    logger.info("LoRA 模型:\n%s", lora_answer)
 
 
 def _generate(model, tokenizer: PreTrainedTokenizer, question: str) -> str:
@@ -67,7 +70,7 @@ def _generate(model, tokenizer: PreTrainedTokenizer, question: str) -> str:
 # 入口
 # ============================================================
 if __name__ == "__main__":
-    from config import setup_environment
+    from poly_distill.config import setup_environment
 
     parser = argparse.ArgumentParser(description="AI Infra LoRA SFT 训练 + 评估")
     parser.add_argument(
@@ -90,7 +93,7 @@ if __name__ == "__main__":
     if args.eval_only:
         # 仅评测模式：直接加载已有 adapter 做全量评估
         from transformers import AutoTokenizer
-        from eval import run_evaluation
+        from poly_distill.eval import run_evaluation
 
         tokenizer = AutoTokenizer.from_pretrained(
             cfg.MODEL_ID, use_fast=True, trust_remote_code=True, cache_dir=cfg.CACHE_DIR
@@ -105,7 +108,7 @@ if __name__ == "__main__":
         quick_compare(cfg, tokenizer)
 
         if not args.skip_eval:
-            from eval import run_evaluation
+            from poly_distill.eval import run_evaluation
             run_evaluation(cfg, tokenizer)
         else:
-            print("⏭️  已跳过全量评测 (--skip-eval)")
+            logger.info("已跳过全量评测 (--skip-eval)")

@@ -27,14 +27,17 @@ JSON → Parquet 格式转换脚本。
       - model: str                # 生成模型标识
 
 用法:
-    python json_to_parquet.py                              # 默认: data/ → data/ 目录
-    python json_to_parquet.py --input ./data --output ./parquet_data
+    python poly_distill/json_to_parquet.py                              # 默认: data/ → data/ 目录
+    python poly_distill/json_to_parquet.py --input ./data --output ./parquet_data
 """
 
 import argparse
 import json
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -77,8 +80,8 @@ def convert_json_to_parquet(input_dir: str, output_dir: str) -> None:
     if not json_files:
         raise FileNotFoundError(f"目录 {input_dir} 下未找到 .json 文件")
 
-    print(f"📁 输入目录: {input_dir}")
-    print(f"📄 发现 {len(json_files)} 个 JSON 文件")
+    logger.info("输入目录: %s", input_dir)
+    logger.info("发现 %d 个 JSON 文件", len(json_files))
 
     # ---- 合并并转换 ----
     all_rows = []
@@ -110,9 +113,9 @@ def convert_json_to_parquet(input_dir: str, output_dir: str) -> None:
             })
             global_idx += 1
 
-        print(f"   ✅ {json_file.name}: {len(data)} 条")
+        logger.info("   ✅ %s: %d 条", json_file.name, len(data))
 
-    print(f"\n总计: {len(all_rows)} 条样本")
+    logger.info("总计: %d 条样本", len(all_rows))
 
     # ---- 显式定义 Schema（确保与参考格式一致） ----
     schema = pa.schema([
@@ -154,15 +157,21 @@ def convert_json_to_parquet(input_dir: str, output_dir: str) -> None:
         row_group_size=1000,
     )
 
-    print(f"\n📦 已输出: {output_file.resolve()}")
-    print(f"   行数: {len(table):,}")
-    print(f"   大小: {os.path.getsize(output_file) / 1024:.1f} KB")
+    logger.info("已输出: %s", output_file.resolve())
+    logger.info("   行数: %s", f"{len(table):,}")
+    logger.info("   大小: %.1f KB", os.path.getsize(output_file) / 1024)
 
 
 # ============================================================
 # 入口
 # ============================================================
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
     parser = argparse.ArgumentParser(
         description="将 AI Infra JSON 数据集转为 reasoning-distill Parquet 格式"
     )
@@ -178,7 +187,7 @@ if __name__ == "__main__":
 
     # 验证：输出目录不能和输入目录完全相同（避免覆盖原始 JSON）
     if os.path.realpath(args.input) == os.path.realpath(args.output):
-        print("⚠️  输入和输出目录相同，JSON 和 Parquet 文件将共存。")
-        print("   原始 JSON 不会被删除，可手动清理。")
+        logger.warning("输入和输出目录相同，JSON 和 Parquet 文件将共存。")
+        logger.warning("   原始 JSON 不会被删除，可手动清理。")
 
     convert_json_to_parquet(args.input, args.output)

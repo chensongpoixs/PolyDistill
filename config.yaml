@@ -5,8 +5,8 @@
 # 未在此文件中声明的字段将使用 Config class 中的默认值。
 #
 # 用法：
-#   python inference.py                  （自动读取 ./config.yaml）
-#   python inference.py --config prod.yaml（指定其他配置文件）
+#   python scripts/train.py                  （自动读取 ./config.yaml）
+#   python scripts/train.py --config prod.yaml（指定其他配置文件）
 #
 # 字段命名：全部使用小写 + 下划线（snake_case），
 #           config.py 会自动映射到大写属性名（UPPER_CASE）。
@@ -27,7 +27,7 @@ model_id: "Qwen/Qwen2.5-0.5B-Instruct"
 
 # 训练数据目录（相对于项目根目录）。
 # 仅支持 Parquet 格式（reasoning-distill schema）。
-# JSON 数据需先转换: python json_to_parquet.py
+# JSON 数据需先转换: python poly_distill/json_to_parquet.py
 # Parquet 列：
 #   messages  : list<{role, content}>  — 对话消息（通常仅 user 角色）
 #   thinking  : str                    — 推理/思考过程
@@ -216,6 +216,20 @@ cuda_visible_devices: "0"
 # 国内环境使用 https://hf-mirror.com 加速模型和数据集下载。
 # 海外环境可改为 https://huggingface.co（官方默认）。
 hf_endpoint: "https://hf-mirror.com"
+
+# ============================================================
+# 日志
+# ============================================================
+log:
+  # 日志级别：DEBUG / INFO / WARNING / ERROR
+  level: "INFO"
+
+  # 日志文件路径（相对于项目根目录）。
+  # 训练过程中的所有日志将同时输出到控制台和此文件。
+  file: "./train.log"
+
+  # 日志格式。可用变量：asctime, levelname, name, message。
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 # ============================================================
 # 评估

@@ -12,6 +12,7 @@
 """
 
 import json
+import logging
 import os
 import random
 import time
@@ -23,7 +24,9 @@ from datasets import concatenate_datasets, load_dataset
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, PreTrainedTokenizer
 
-from config import Config
+from poly_distill.config import Config
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -120,7 +123,7 @@ def evaluate_perplexity(
     avg_loss = total_loss / total_tokens if total_tokens > 0 else float("inf")
     avg_ppl = torch.exp(torch.tensor(avg_loss)).item()
 
-    print(f"  [{label}] Loss={avg_loss:.4f}  PPL={avg_ppl:.2f}  (tokens={total_tokens})")
+    logger.info("  [%s] Loss=%.4f  PPL=%.2f  (tokens=%d)", label, avg_loss, avg_ppl, total_tokens)
     return {"label": label, "avg_ppl": round(avg_ppl, 2), "avg_loss": round(avg_loss, 4)}
 
 
@@ -220,7 +223,7 @@ def evaluate_rouge(
         scores.append(f1)
 
     avg_f1 = sum(scores) / len(scores) if scores else 0.0
-    print(f"  [{label}] ROUGE-L F1={avg_f1:.4f}  (samples={len(scores)})")
+    logger.info("  [%s] ROUGE-L F1=%.4f  (samples=%d)", label, avg_f1, len(scores))
     return {"label": label, "rouge_l_f1": round(avg_f1, 4), "num_samples": len(scores)}
 
 
@@ -400,9 +403,9 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
       3. 加载 LoRA 模型 → 计算 PPL / ROUGE / 收集生成样本
       4. 生成 Markdown 报告 + JSON 结果
     """
-    print("\n" + "=" * 60)
-    print("   📊 训练质量评估")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("  训练质量评估")
+    logger.info("=" * 60)
 
     # ---- 加载评估数据（仅 Parquet 格式） ----
     data_dir = Path(config.DATA_DIR)
@@ -410,13 +413,13 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     if not data_files:
         raise FileNotFoundError(
             f"数据目录下未找到 .parquet 文件: {data_dir}\n"
-            f"请先运行: python json_to_parquet.py"
+            f"请先运行: python poly_distill/json_to_parquet.py"
         )
-    print(f"📁 评估数据: Parquet, 文件数: {len(data_files)}")
+    logger.info("评估数据: Parquet, 文件数: %d", len(data_files))
 
     datasets_list = []
     for f in data_files:
-        ds = load_dataset(fmt, data_files=str(f), split="train")
+        ds = load_dataset("parquet", data_files=str(f), split="train")
         datasets_list.append(ds)
     dataset = concatenate_datasets(datasets_list) if len(datasets_list) > 1 else datasets_list[0]
     n_total = len(dataset)
@@ -427,10 +430,10 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     rng = random.Random(42)  # 固定种子，结果可复现
     indices = rng.sample(range(n_total), n_eval)
     eval_samples = [dataset[i] for i in indices]
-    print(f"\n📄 评估数据集: {n_eval} / {n_total} 条样本（随机种子=42）")
+    logger.info("评估数据集: %d / %d 条样本（随机种子=42）", n_eval, n_total)
 
     # ---- 加载 Base 模型 ----
-    print("\n--- 加载 Base 模型 ---")
+    logger.info("--- 加载 Base 模型 ---")
     base_model = AutoModelForCausalLM.from_pretrained(
         config.MODEL_ID,
         device_map="auto",
@@ -439,19 +442,19 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     )
 
     # ---- Base 评估 ----
-    print("\n>>> Perplexity 评估")
+    logger.info(">>> Perplexity 评估")
     ppl_results = []
     ppl_results.append(
         evaluate_perplexity(base_model, tokenizer, config, eval_samples, "Base")
     )
 
-    print("\n>>> ROUGE-L 评估")
+    logger.info(">>> ROUGE-L 评估")
     rouge_results = []
     rouge_results.append(
         evaluate_rouge(base_model, tokenizer, config, eval_samples, "Base")
     )
 
-    print("\n>>> 收集 Base 模型生成样本")
+    logger.info(">>> 收集 Base 模型生成样本")
     base_gen_samples = collect_generation_samples(
         base_model, tokenizer, config, eval_samples, "Base", n_show=5
     )
@@ -461,7 +464,7 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     torch.cuda.empty_cache()
 
     # ---- 加载 LoRA 模型 ----
-    print("\n--- 加载 LoRA 模型 ---")
+    logger.info("--- 加载 LoRA 模型 ---")
     lora_base = AutoModelForCausalLM.from_pretrained(
         config.MODEL_ID,
         device_map="auto",
@@ -471,17 +474,17 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     lora_model = PeftModel.from_pretrained(lora_base, config.OUTPUT_DIR)
 
     # ---- LoRA 评估 ----
-    print("\n>>> Perplexity 评估")
+    logger.info(">>> Perplexity 评估")
     ppl_results.append(
         evaluate_perplexity(lora_model, tokenizer, config, eval_samples, "LoRA")
     )
 
-    print("\n>>> ROUGE-L 评估")
+    logger.info(">>> ROUGE-L 评估")
     rouge_results.append(
         evaluate_rouge(lora_model, tokenizer, config, eval_samples, "LoRA")
     )
 
-    print("\n>>> 收集 LoRA 模型生成样本")
+    logger.info(">>> 收集 LoRA 模型生成样本")
     lora_gen_samples = collect_generation_samples(
         lora_model, tokenizer, config, eval_samples, "LoRA", n_show=5
     )
@@ -491,7 +494,7 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
 
     report_path = Path(config.EVAL_REPORT_PATH)
     report_path.write_text(report, encoding="utf-8")
-    print(f"\n📄 评测报告已保存: {report_path.resolve()}")
+    logger.info("评测报告已保存: %s", report_path.resolve())
 
     # ---- 保存 JSON 结构化结果 ----
     json_results = {
@@ -511,21 +514,21 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     json_path.write_text(
         json.dumps(json_results, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"📄 结构化结果已保存: {json_path.resolve()}")
+    logger.info("结构化结果已保存: %s", json_path.resolve())
 
     # ---- 终端摘要 ----
-    print("\n" + "=" * 60)
-    print("   📋 评估摘要")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("  评估摘要")
+    logger.info("=" * 60)
     for r in ppl_results:
-        print(f"  PPL  [{r['label']}]: {r['avg_ppl']:.2f}  (loss={r['avg_loss']:.4f})")
+        logger.info("  PPL  [%s]: %.2f  (loss=%.4f)", r["label"], r["avg_ppl"], r["avg_loss"])
     for r in rouge_results:
-        print(f"  ROUGE [{r['label']}]: {r['rouge_l_f1']:.4f}")
-    print("=" * 60)
+        logger.info("  ROUGE [%s]: %.4f", r["label"], r["rouge_l_f1"])
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":
-    from config import load_config, setup_environment
+    from poly_distill.config import load_config, setup_environment
 
     cfg = load_config()
     setup_environment(cfg)

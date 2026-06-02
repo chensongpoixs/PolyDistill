@@ -110,7 +110,7 @@ base_model: {config.MODEL_ID}
 A multi-teacher distilled small language model for AI infrastructure domain.
 
 - **Base model**: {config.MODEL_ID}
-- **Training framework**: [PolyDistill](https://github.com/user/PolyDistill)
+- **Training framework**: [PolyDistill](https://github.com/chensongpoixs/PolyDistill)
 - **Teachers**: GPT-4o, Claude 3.5 Sonnet, Gemini 1.5 Pro
 - **Distillation method**: Black-box instruction distillation + LoRA SFT (r={config.LORA_R})
 - **Domain**: AI Infra (audio/video codecs, streaming protocols, GPU/CUDA, etc.)

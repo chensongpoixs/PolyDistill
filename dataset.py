@@ -55,6 +55,7 @@ def load_and_prepare_data(config: Config, tokenizer: PreTrainedTokenizer) -> Dat
             {
                 "instruction": "面试问题...",
                 "input": "",         # 可选
+                "thinking": "思考链内容...",  # 可选，优先于 "reasoning"
                 "output": "参考答案..."
             },
             ...

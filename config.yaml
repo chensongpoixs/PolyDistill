@@ -63,17 +63,18 @@ lora:
   # 低秩矩阵的秩（rank）。
   # r 越大，表达能力越强，但可训练参数越多、过拟合风险越高。
   # 推荐范围：8（极简）~ 64（复杂任务）。小数据集（<1000 条）建议 8~16。
-  r: 16
+  # 当前 432 条数据，r=8 可有效防止过拟合。
+  r: 8
 
   # LoRA 缩放系数。
-  # 实际缩放因子 = alpha / r。alpha=32, r=16 时缩放因子为 2。
-  # 常用搭配：alpha = 2 * r（如 r=8→alpha=16, r=16→alpha=32）。
-  alpha: 32
+  # 实际缩放因子 = alpha / r。alpha=16, r=8 时缩放因子为 2。
+  # 常用搭配：alpha = 2 * r。
+  alpha: 16
 
   # LoRA 层的 dropout 概率。
   # 在低秩矩阵训练时随机丢弃部分神经元，防止小数据集上的过拟合。
-  # 推荐范围：0.01~0.1。数据集越小，dropout 应越高。
-  dropout: 0.05
+  # 推荐范围：0.05~0.15。数据量越少、epoch 越多，dropout 应越高。
+  dropout: 0.1
 
   # 要应用 LoRA 的目标模块名称列表。
   # Qwen 系列常用模块：q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj。
@@ -117,23 +118,71 @@ training:
   lr_scheduler_type: "cosine"
 
   # 训练总轮次（epoch）。
-  # 小数据集（~18 条）需较多 epoch 才能充分拟合。
-  # 若验证 loss 持续上升，说明过拟合，应降低 epoch 或增大 dropout。
-  # 注意：epoch 多 ≠ 效果好，需结合推理评估判断。
-  num_train_epochs: 300
+  # 432 条数据 + LoRA r=8 场景，100 epochs 通常足够收敛。
+  # 配合 early_stopping_patience 自动早停，避免无效训练。
+  # 若数据量增至 1000+，可降低到 20~50。
+  num_train_epochs: 100
+
+  # ---- 正则化（防过拟合） ----
+
+  # 权重衰减（L2 正则化）。
+  # 对 LoRA 权重施加 L2 惩罚，限制权重幅度，提升泛化能力。
+  # 0 表示不衰减。推荐 0.01~0.05，数据量越小值越大。
+  weight_decay: 0.01
+
+  # 梯度裁剪阈值。
+  # 限制梯度的最大 L2 范数，防止单步更新过大导致训练震荡。
+  # 0 表示不裁剪。LoRA 训练推荐 1.0。
+  max_grad_norm: 1.0
+
+  # NEFTune 噪声强度。
+  # 在 embedding 层注入均匀随机噪声，显著提升指令微调泛化效果。
+  # 推荐 5~15。0 表示禁用。
+  # 仅 TRL ≥ 0.12 支持。
+  neftune_noise_alpha: 5
+
+  # ---- 早停 ----
+
+  # 早停耐心值（epoch 数）。
+  # 若 eval_loss 在 patience 个 epoch 内未改善，自动停止训练。
+  # 0 表示禁用早停。配合 load_best_model_at_end 自动加载最优权重。
+  early_stopping_patience: 10
+
+  # 早停阈值。
+  # eval_loss 需改善超过此阈值才算"有改善"，避免因浮点抖动误判。
+  early_stopping_threshold: 0.001
+
+  # ---- 评估分割 ----
+
+  # 验证集比例。
+  # 从全量数据中划分此比例作为验证集（不参与训练），用于早停和过拟合检测。
+  # 推荐 0.1~0.15。432 条数据取 0.1 = 43 条验证集。
+  eval_split_ratio: 0.1
 
   # 日志打印间隔（步数）。
-  # 每隔 logging_steps 步打印一次 training loss、lr 等指标。
+  # 每隔 logging_steps 步打印一次 training loss、lr、eval_loss 等指标。
   # 过小 → 日志刷屏；过大 → 无法及时观察训练状态。
   logging_steps: 10
 
   # checkpoint 保存策略。
   # 可选值：
   #   "no"        — 不保存 checkpoint
-  #   "epoch"     — 每个 epoch 结束时保存（推荐，配合小数据集）
+  #   "epoch"     — 每个 epoch 结束时保存
   #   "steps"     — 每隔 save_steps 步保存（需同时设置 save_steps）
-  #   "best"      — 仅在指标改善时保存（需同时设置 metric_for_best_model）
-  save_strategy: "epoch"
+  #   "best"      — 仅在 eval_loss 改善时保存（推荐，配合 early stopping）
+  save_strategy: "best"
+
+  # 保存的 checkpoint 总数上限。
+  # 仅保留最近的 N 个 best checkpoint，旧的自动删除，节省磁盘。
+  save_total_limit: 3
+
+  # 用于比较"最优"模型的指标。
+  # 需与 save_strategy="best" 配合使用。
+  metric_for_best_model: "eval_loss"
+
+  # 训练结束时自动加载最优 checkpoint（而非最后一个）。
+  # 配合 early stopping + save_strategy="best" 使用，确保拿到最佳模型。
+  load_best_model_at_end: true
 
 # ============================================================
 # 对话模板

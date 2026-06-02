@@ -40,6 +40,7 @@ ai_infra/
 ├── train.py          # 模型加载、LoRA 配置、SFT 训练（依赖 config + dataset）
 ├── eval.py           # PPL / ROUGE-L / 生成样本 评测（依赖 config）
 ├── inference.py      # 入口 main：训练 → 推理对比 → 全量评测（依赖 config + train + eval）
+├── TRAINING_PLAN.md  # 训练优化规划（4 阶段：数据/训练策略/评估/迭代）
 ├── requirements.txt  # Python 依赖清单（Python ≥ 3.10）
 ├── data/             # 训练数据目录（自动加载所有 .json 文件并合并）
 ├── img/              # 流程图
@@ -84,15 +85,20 @@ ai_infra_audio_video.json
 | ROUGE-L 自实现（逐字 LCS） | 避免引入 rouge-score 等额外依赖，中文逐字比较无需分词 |
 | 评测固定随机种子 42 | 确保每次评测抽取相同样本，结果可复现 |
 | `--eval-only` 模式 | 可在不重新训练的情况下反复评测，快速迭代 prompt/参数 |
+| Early Stopping + Best Checkpoint | patience=10 epoch 内 eval_loss 未改善则自动停止，加载最优权重 |
+| NEFTune 噪声注入 | embedding 层注入均匀噪声（alpha=5），显著提升小数据集指令微调泛化性 |
+| Train/Val Split 90/10 | 从全量数据划分验证集，支持早停和过拟合检测 |
 
 ### 训练参数速查
 
 | 参数 | 值 |
 |------|-----|
 | 基座模型 | `Qwen/Qwen2.5-0.5B-Instruct` |
-| LoRA | r=16, alpha=32, dropout=0.05, target=(q_proj, v_proj) |
+| LoRA | r=8, alpha=16, dropout=0.1, target=(q_proj, v_proj) |
 | Effective batch | 4 × 8 = 32 |
 | LR | 2e-4, cosine + 3% warmup |
-| Epochs | 300 |
+| Epochs | 100（配合 early stopping patience=10） |
+| 正则化 | weight_decay=0.01, max_grad_norm=1.0, NEFTune=5 |
+| Train/Val split | 90/10（seed=42） |
 | 精度 | BF16 (训练) / FP16 (推理对比) |
 | GPU | 单卡 Ampere+（BF16 需要） |

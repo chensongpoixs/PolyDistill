@@ -32,9 +32,9 @@ class Config:
     OUTPUT_DIR: str = "./lora_sft_ai_infra_audio_video_output"
 
     # ---- LoRA 参数 ----
-    LORA_R: int = 16
-    LORA_ALPHA: int = 32
-    LORA_DROPOUT: float = 0.05
+    LORA_R: int = 8
+    LORA_ALPHA: int = 16
+    LORA_DROPOUT: float = 0.1
     LORA_TARGET_MODULES: list = None  # 由 __init__ 设置默认值
 
     # ---- 训练超参数 ----
@@ -43,9 +43,22 @@ class Config:
     LEARNING_RATE: float = 2e-4
     WARMUP_RATIO: float = 0.03
     LR_SCHEDULER_TYPE: str = "cosine"
-    NUM_TRAIN_EPOCHS: int = 300
+    NUM_TRAIN_EPOCHS: int = 100
+    # 正则化
+    WEIGHT_DECAY: float = 0.01
+    MAX_GRAD_NORM: float = 1.0
+    NEFTUNE_NOISE_ALPHA: int = 5
+    # 早停
+    EARLY_STOPPING_PATIENCE: int = 10
+    EARLY_STOPPING_THRESHOLD: float = 0.001
+    # 评估分割
+    EVAL_SPLIT_RATIO: float = 0.1
+    # 日志与保存
     LOGGING_STEPS: int = 10
-    SAVE_STRATEGY: str = "epoch"
+    SAVE_STRATEGY: str = "best"
+    SAVE_TOTAL_LIMIT: int = 3
+    METRIC_FOR_BEST_MODEL: str = "eval_loss"
+    LOAD_BEST_MODEL_AT_END: bool = True
 
     # ---- 对话模板 ----
     RESPONSE_TEMPLATE: str = "<|im_start|>assistant\n"
@@ -101,8 +114,17 @@ _FIELD_MAP = {
     "training.warmup_ratio": "WARMUP_RATIO",
     "training.lr_scheduler_type": "LR_SCHEDULER_TYPE",
     "training.num_train_epochs": "NUM_TRAIN_EPOCHS",
+    "training.weight_decay": "WEIGHT_DECAY",
+    "training.max_grad_norm": "MAX_GRAD_NORM",
+    "training.neftune_noise_alpha": "NEFTUNE_NOISE_ALPHA",
+    "training.early_stopping_patience": "EARLY_STOPPING_PATIENCE",
+    "training.early_stopping_threshold": "EARLY_STOPPING_THRESHOLD",
+    "training.eval_split_ratio": "EVAL_SPLIT_RATIO",
     "training.logging_steps": "LOGGING_STEPS",
     "training.save_strategy": "SAVE_STRATEGY",
+    "training.save_total_limit": "SAVE_TOTAL_LIMIT",
+    "training.metric_for_best_model": "METRIC_FOR_BEST_MODEL",
+    "training.load_best_model_at_end": "LOAD_BEST_MODEL_AT_END",
     # ---- 对话模板 ----
     "response_template": "RESPONSE_TEMPLATE",
     "system_prompt": "SYSTEM_PROMPT",

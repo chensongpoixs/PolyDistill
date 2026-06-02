@@ -27,6 +27,51 @@ from config import Config
 
 
 # ============================================================
+# 0. 数据格式标准化
+# ============================================================
+def _get_question(example: dict) -> str:
+    """从 Parquet 样本中提取用户问题。
+
+    Parquet messages 列表中 role=user 的 content。
+    """
+    for msg in example.get("messages", []):
+        if msg.get("role") == "user":
+            return msg.get("content", "")
+    return ""
+
+
+def _get_reference(example: dict) -> str:
+    """从 Parquet 样本中提取参考答案（response 列）。"""
+    return example.get("response", "")
+
+
+def _build_messages(example: dict, config: Config) -> list:
+    """从 Parquet 行构造完整对话消息列表。
+
+    Parquet schema: {messages, thinking, response, system}
+
+    返回统一的 [system, user, assistant] 消息列表。
+    """
+    system = example.get("system") or config.SYSTEM_PROMPT
+
+    user_content = ""
+    for msg in example.get("messages", []):
+        if msg.get("role") == "user":
+            user_content = msg.get("content", "")
+            break
+
+    thinking = example.get("thinking") or ""
+    response = example.get("response", "")
+    assistant_content = f"{thinking}\n\n{response}" if thinking else response
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_content},
+        {"role": "assistant", "content": assistant_content},
+    ]
+
+
+# ============================================================
 # 1. Perplexity 评估
 # ============================================================
 def evaluate_perplexity(
@@ -58,16 +103,8 @@ def evaluate_perplexity(
 
     with torch.no_grad():
         for example in samples:
-            # 构造与训练一致的对话格式（含思考链）
-            thinking = example.get("thinking") or example.get("reasoning")
-            assistant_content = (
-                f"{thinking}\n\n{example['output']}" if thinking else example["output"]
-            )
-            messages = [
-                {"role": "system", "content": config.SYSTEM_PROMPT},
-                {"role": "user", "content": example["instruction"]},
-                {"role": "assistant", "content": assistant_content},
-            ]
+            # 构造与训练一致的对话格式（兼容 JSON 和 Parquet 两种格式）
+            messages = _build_messages(example, config)
             text = tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=False
             )
@@ -155,9 +192,10 @@ def evaluate_rouge(
 
     for example in samples:
         # 生成
+        question = _get_question(example)
         messages = [
             {"role": "system", "content": config.SYSTEM_PROMPT},
-            {"role": "user", "content": example["instruction"]},
+            {"role": "user", "content": question},
         ]
         text = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
@@ -177,7 +215,8 @@ def evaluate_rouge(
         if "<|im_start|>assistant" in generated:
             generated = generated.split("<|im_start|>assistant")[-1].strip()
 
-        _, _, f1 = rouge_l_score(example["output"], generated)
+        reference = _get_reference(example)
+        _, _, f1 = rouge_l_score(reference, generated)
         scores.append(f1)
 
     avg_f1 = sum(scores) / len(scores) if scores else 0.0
@@ -209,9 +248,10 @@ def collect_generation_samples(
     show_samples = samples[:n_show]
 
     for example in show_samples:
+        question = _get_question(example)
         messages = [
             {"role": "system", "content": config.SYSTEM_PROMPT},
-            {"role": "user", "content": example["instruction"]},
+            {"role": "user", "content": question},
         ]
         text = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
@@ -231,8 +271,8 @@ def collect_generation_samples(
             generated = generated.split("<|im_start|>assistant")[-1].strip()
 
         results.append({
-            "instruction": example["instruction"],
-            "reference": example["output"],
+            "instruction": question,
+            "reference": _get_reference(example),
             "generated": generated,
         })
 
@@ -364,12 +404,19 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     print("   📊 训练质量评估")
     print("=" * 60)
 
-    # ---- 加载评估数据（与训练一致：收集目录下所有 JSON 文件） ----
+    # ---- 加载评估数据（仅 Parquet 格式） ----
     data_dir = Path(config.DATA_DIR)
-    json_files = sorted(data_dir.glob("*.json"))
+    data_files = sorted(data_dir.glob("*.parquet"))
+    if not data_files:
+        raise FileNotFoundError(
+            f"数据目录下未找到 .parquet 文件: {data_dir}\n"
+            f"请先运行: python json_to_parquet.py"
+        )
+    print(f"📁 评估数据: Parquet, 文件数: {len(data_files)}")
+
     datasets_list = []
-    for f in json_files:
-        ds = load_dataset("json", data_files=str(f), split="train")
+    for f in data_files:
+        ds = load_dataset(fmt, data_files=str(f), split="train")
         datasets_list.append(ds)
     dataset = concatenate_datasets(datasets_list) if len(datasets_list) > 1 else datasets_list[0]
     n_total = len(dataset)

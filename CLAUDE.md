@@ -12,6 +12,9 @@ AI Infra 领域知识蒸馏项目 — 使用 LoRA SFT 微调 `Qwen2.5-0.5B-Instr
 # 安装依赖
 pip install -r requirements.txt
 
+# JSON → Parquet 格式转换（首次）
+python json_to_parquet.py --input ./data --output ./data
+
 # 完整流水线：训练 → 推理对比 → 全量评测 → 输出报告
 python inference.py
 
@@ -40,6 +43,7 @@ ai_infra/
 ├── train.py          # 模型加载、LoRA 配置、SFT 训练（依赖 config + dataset）
 ├── eval.py           # PPL / ROUGE-L / 生成样本 评测（依赖 config）
 ├── inference.py      # 入口 main：训练 → 推理对比 → 全量评测（依赖 config + train + eval）
+├── json_to_parquet.py # JSON → Parquet 格式转换脚本
 ├── TRAINING_PLAN.md  # 训练优化规划（4 阶段：数据/训练策略/评估/迭代）
 ├── requirements.txt  # Python 依赖清单（Python ≥ 3.10）
 ├── data/             # 训练数据目录（自动加载所有 .json 文件并合并）
@@ -53,7 +57,7 @@ ai_infra/
 | 层 | 文件 | 核心职责 |
 |----|------|---------|
 | 配置层 | `config.py` + `config.yaml` | `Config` class 提供默认值；`config.yaml` 覆盖；`load_config()` 合并两者 |
-| 数据层 | `dataset.py` | `load_and_prepare_data(config, tokenizer)` 加载 JSON → chat_template 格式化 → 仅保留 "text" |
+| 数据层 | `dataset.py` | 仅加载 Parquet 文件 → chat_template 格式化 → 仅保留 "text" |
 | 训练层 | `train.py` | `train(config)` → 加载模型(BF16) → 数据集 → DataCollatorForCompletionOnlyLM → LoRA(r=16) → SFTTrainer → 保存 adapter |
 | 评测层 | `eval.py` | `run_evaluation(config, tokenizer)` → PPL / ROUGE-L / 生成样本对比 → 输出 `eval_report.md` + `eval_results.json` |
 | 入口层 | `inference.py` | `__main__` 串联全流程；支持 `--eval-only` / `--skip-eval` 模式 |
@@ -81,6 +85,7 @@ ai_infra_audio_video.json
 | 单卡，禁用 DDP | `_reset_ddp_env()` 清理残留分布式环境变量，防止误触发 |
 | 仅训练 `q_proj/v_proj` | ~2M 可训练参数，降低过拟合风险 |
 | HF 镜像 `hf-mirror.com` | 国内加速下载模型和数据集 |
+| 训练强制 Parquet 格式 | reasoning-distill schema（messages/thinking/response 列）；JSON 需先 `python json_to_parquet.py` 转换 |
 | 评测 3 维度: PPL + ROUGE-L + 生成样本 | PPL 衡量拟合度，ROUGE-L 衡量内容重叠，生成样本供人工判断 |
 | ROUGE-L 自实现（逐字 LCS） | 避免引入 rouge-score 等额外依赖，中文逐字比较无需分词 |
 | 评测固定随机种子 42 | 确保每次评测抽取相同样本，结果可复现 |

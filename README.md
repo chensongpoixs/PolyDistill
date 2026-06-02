@@ -1,7 +1,8 @@
 # TinySage: 多教师蒸馏小语言模型
 
-TinySage 是一个基于 Qwen3-0.6B 的 0.6B 小模型，使用自研蒸馏训练框架 **PolyDistill** 
+TinySage 是基于 Qwen3 家族的多规格小模型，使用自研蒸馏训练框架 **PolyDistill** 
 统一调度 GPT、Claude、Gemini 等商业 API 教师模型与学生模型的训练。
+支持 0.6B / 1.7B 双规格，修改 config.yaml 中 model_id 即可切换。
 
 PolyDistill 核心能力：
 - 支持跨架构商业大模型的黑盒蒸馏
@@ -9,10 +10,10 @@ PolyDistill 核心能力：
 - 大规模教师语料的高效流式处理
 - 灵活的训练策略（逻辑层蒸馏、指令蒸馏等）
 
-最终产出的 TinySage-0.6B 集三家之长，体量仅 0.6B，可轻松部署至端侧。
+最终产出的 TinySage 集三家之长，体量 0.6B/1.7B 可选，可灵活部署至端侧或服务器。
 
 **训练框架**：PolyDistill（本仓库提供）  
-**模型**：TinySage-0.6B
+**模型**：TinySage（0.6B / 1.7B 双规格）
 
 ---
 

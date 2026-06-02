@@ -1,6 +1,6 @@
 # TinySage: A Multi-Teacher Distilled Small Language Model
 
-TinySage is a 0.6B small language model (SLM) based on Qwen3-0.6B.  
+TinySage is a multi-scale SLM based on the Qwen3 family (0.6B / 1.7B). Switch by setting `model_id` in `config.yaml`.  
 It was trained using **PolyDistill**, a flexible multi-teacher knowledge distillation framework 
 that orchestrates API-based teachers (GPT, Claude, Gemini) 
 and a local student model under a unified training pipeline.
@@ -15,7 +15,7 @@ The result: a tiny yet capable model that inherits the collective strengths of
 three state-of-the-art teachers, deployable on edge devices with minimal footprint.
 
 **Framework**: PolyDistill (included in this repo)  
-**Model**: TinySage-0.6B
+**Model**: TinySage (0.6B / 1.7B dual-scale)
 
 ---
 

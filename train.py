@@ -82,41 +82,43 @@ def build_training_args(config: Config) -> TrainingArguments:
     关键参数：
       - weight_decay=0.01：L2 正则化，抑制过拟合。
       - max_grad_norm=1.0：梯度裁剪，防止训练震荡。
+      - neftune_noise_alpha=5：embedding 噪声注入（需要 transformers ≥ 4.38）。
       - save_strategy="best" + load_best_model_at_end：自动选取最优 checkpoint。
-      - evaluation_strategy="epoch"：每个 epoch 评估验证集，配合早停使用。
     """
-    return TrainingArguments(
-        # ---- 输出 ----
+    kwargs = dict(
         output_dir=config.OUTPUT_DIR,
-        # ---- 批次 ----
         per_device_train_batch_size=config.PER_DEVICE_BATCH_SIZE,
         gradient_accumulation_steps=config.GRADIENT_ACCUMULATION_STEPS,
-        # ---- 学习率 ----
         learning_rate=config.LEARNING_RATE,
         warmup_ratio=config.WARMUP_RATIO,
         lr_scheduler_type=config.LR_SCHEDULER_TYPE,
         num_train_epochs=config.NUM_TRAIN_EPOCHS,
-        # ---- 正则化 ----
         weight_decay=config.WEIGHT_DECAY,
         max_grad_norm=config.MAX_GRAD_NORM,
-        # ---- 早停 ----
         load_best_model_at_end=config.LOAD_BEST_MODEL_AT_END,
         metric_for_best_model=config.METRIC_FOR_BEST_MODEL,
-        # ---- 评估 ----
         eval_strategy="epoch" if config.EVAL_SPLIT_RATIO > 0 else "no",
-        # ---- 保存 ----
         save_strategy=config.SAVE_STRATEGY,
         save_total_limit=config.SAVE_TOTAL_LIMIT,
-        # ---- 早停回调（TrainingArguments 不直接支持，由 Trainer 回调处理） ----
-        # early_stopping_patience / threshold 在 SFTTrainer 中通过 callbacks 注入
-        # ---- 日志 ----
         logging_steps=config.LOGGING_STEPS,
-        # ---- 精度 ----
         bf16=torch.cuda.is_available(),
         report_to="none",
-        # ---- 分布式 ----
         ddp_find_unused_parameters=False,
     )
+
+    # NEFTune：需要 transformers ≥ 4.38，旧版本静默跳过
+    neftune_alpha = config.NEFTUNE_NOISE_ALPHA
+    if neftune_alpha > 0:
+        kwargs["neftune_noise_alpha"] = neftune_alpha
+
+    try:
+        return TrainingArguments(**kwargs)
+    except TypeError as e:
+        if "neftune_noise_alpha" in str(e):
+            del kwargs["neftune_noise_alpha"]
+            print(f"⚠️  当前 transformers 版本不支持 NEFTune（需 ≥ 4.38），已跳过")
+            return TrainingArguments(**kwargs)
+        raise
 
 
 def train(config: Config) -> tuple:
@@ -189,14 +191,6 @@ def train(config: Config) -> tuple:
         data_collator=data_collator,
         callbacks=callbacks,
     )
-
-    # NEFTune：在 embedding 层注入噪声，提升指令微调泛化效果
-    if config.NEFTUNE_NOISE_ALPHA > 0:
-        try:
-            trainer_kwargs["neftune_noise_alpha"] = config.NEFTUNE_NOISE_ALPHA
-            print(f"🔊 NEFTune 已启用: noise_alpha={config.NEFTUNE_NOISE_ALPHA}")
-        except Exception:
-            print("⚠️  NEFTune 配置失败（可能需要 TRL ≥ 0.12），已跳过")
 
     trainer = SFTTrainer(**trainer_kwargs)
 

@@ -57,6 +57,13 @@ class Config:
     # ---- 镜像加速（国内环境） ----
     HF_ENDPOINT: str = "https://hf-mirror.com"
 
+    # ---- 评估参数 ----
+    EVAL_NUM_SAMPLES: int = 50
+    EVAL_MAX_NEW_TOKENS: int = 512
+    EVAL_TEMPERATURE: float = 0.1
+    EVAL_REPORT_PATH: str = "./eval_report.md"
+    EVAL_JSON_PATH: str = "./eval_results.json"
+
     def __init__(self, **kwargs):
         """用关键字参数覆盖任意默认值。
 
@@ -103,6 +110,12 @@ _FIELD_MAP = {
     "cuda_visible_devices": "CUDA_VISIBLE_DEVICES",
     # ---- 镜像 ----
     "hf_endpoint": "HF_ENDPOINT",
+    # ---- 评估 ----
+    "eval.num_samples": "EVAL_NUM_SAMPLES",
+    "eval.max_new_tokens": "EVAL_MAX_NEW_TOKENS",
+    "eval.temperature": "EVAL_TEMPERATURE",
+    "eval.report_path": "EVAL_REPORT_PATH",
+    "eval.json_path": "EVAL_JSON_PATH",
 }
 
 

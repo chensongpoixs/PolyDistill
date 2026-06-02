@@ -1,0 +1,3 @@
+[submodule "data/ai_infra_audio_video"]
+	path = data/ai_infra_audio_video
+	url = https://oauth2:ms-a45cd506-ccd6-4904-9036-780a2674a9bb@www.modelscope.cn/datasets/chensongpoixs/ai_infra_audio_video.git

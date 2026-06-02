@@ -35,12 +35,15 @@ def load_and_prepare_data(config: Config, tokenizer: PreTrainedTokenizer) -> "Da
     dataset = load_dataset("json", data_files=config.DATA_FILE, split="train")
     print(f"✅ 数据集加载完成，共 {len(dataset)} 条样本")
 
+    # 保留原始列名（用于后续移除），因为 map 后会新增 "text" 列
+    original_columns = dataset.column_names
+
     # 预处理：将 instruction + output 转换为 Qwen 对话格式的完整文本
     dataset = dataset.map(
         lambda x: {"text": _format_conversation(x, config, tokenizer)}
     )
-    # 移除原始字段，仅保留 "text"（避免 SFTTrainer 警告）
-    dataset = dataset.remove_columns(dataset.column_names)
+    # 仅移除原始字段，保留 "text"（避免 SFTTrainer 因多余字段警告）
+    dataset = dataset.remove_columns(original_columns)
     return dataset
 
 

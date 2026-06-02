@@ -160,3 +160,21 @@ cuda_visible_devices: "0"
 # 国内环境使用 https://hf-mirror.com 加速模型和数据集下载。
 # 海外环境可改为 https://huggingface.co（官方默认）。
 hf_endpoint: "https://hf-mirror.com"
+
+# ============================================================
+# 评估
+# ============================================================
+eval:
+  # 评测样本数量。
+  # 从数据集中随机抽取 N 条用于评估（不参与训练打分仅做推断）。
+  # 设置为 0 表示使用全部数据。
+  num_samples: 50
+
+  # 生成参数。
+  max_new_tokens: 512                     # 生成回答的最大 token 数
+  temperature: 0.1                        # 低温采样（越低越确定，便于对比复现）
+
+  # 评估报告输出路径（相对于项目根目录）。
+  report_path: "./eval_report.md"         # Markdown 评测报告
+  json_path: "./eval_results.json"        # 结构化原始数据（供程序化分析）
+

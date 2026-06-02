@@ -58,11 +58,15 @@ def evaluate_perplexity(
 
     with torch.no_grad():
         for example in samples:
-            # 构造与训练一致的对话格式
+            # 构造与训练一致的对话格式（含思考链）
+            thinking = example.get("thinking") or example.get("reasoning")
+            assistant_content = (
+                f"{thinking}\n\n{example['output']}" if thinking else example["output"]
+            )
             messages = [
                 {"role": "system", "content": config.SYSTEM_PROMPT},
                 {"role": "user", "content": example["instruction"]},
-                {"role": "assistant", "content": example["output"]},
+                {"role": "assistant", "content": assistant_content},
             ]
             text = tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=False

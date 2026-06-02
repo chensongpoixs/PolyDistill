@@ -93,7 +93,7 @@ def _format_conversation(
 ) -> str:
     """将单条样本格式化为 Qwen chat_template 字符串。
 
-    对话结构：
+    对话结构（无思考链）：
         <|im_start|>system
         {system_prompt}<|im_end|>
         <|im_start|>user
@@ -101,13 +101,36 @@ def _format_conversation(
         <|im_start|>assistant
         {output}<|im_end|>
 
-    注意：
-      add_generation_prompt=False：训练时不需要模型继续生成，因此不加生成提示标记。
+    对话结构（含思考链）：
+        <|im_start|>system
+        {system_prompt}<|im_end|>
+        <|im_start|>user
+        {instruction}<|im_end|>
+        <|im_start|>assistant
+        {thinking}
+
+        {output}<|im_end|>
+
+    思考链字段优先级：JSON 中的 "thinking" > "reasoning" > None。
+    DataCollatorForCompletionOnlyLM 以 "<|im_start|>assistant\\n" 为界，
+    思考链和最终答案都会被计算 loss，确保模型同时学习思考过程和回答。
     """
+    # 提取思考链（支持 thinking / reasoning 两种字段名）
+    thinking = example.get("thinking") or example.get("reasoning")
+
+    # 构造 assistant 消息
+    if thinking:
+        assistant_msg = {
+            "role": "assistant",
+            "content": f"{thinking}\n\n{example['output']}",
+        }
+    else:
+        assistant_msg = {"role": "assistant", "content": example["output"]}
+
     messages = [
         {"role": "system", "content": config.SYSTEM_PROMPT},
         {"role": "user", "content": example["instruction"]},
-        {"role": "assistant", "content": example["output"]},
+        assistant_msg,
     ]
     return tokenizer.apply_chat_template(
         messages,

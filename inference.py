@@ -29,8 +29,7 @@ def quick_compare(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     这是训练后最直观的检查——一眼看出模型是否学到了领域知识。
     """
     test_question = (
-        "你如何利用BGE-M3模型进行混合检索？"
-        "请说明向量检索与BM25结合的流程。"
+        "解释CNN中的感受野（Receptive Field）概念，在设计视频降噪网络时，感受野大小如何影响去噪效果？"
     )
 
     print("\n=== ⚔️ 快速推理对比 ⚔️ ===\n")

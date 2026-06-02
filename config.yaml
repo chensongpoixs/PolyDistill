@@ -27,7 +27,14 @@ model_id: "Qwen/Qwen2.5-0.5B-Instruct"
 
 # 训练数据目录（相对于项目根目录）。
 # 程序会遍历此目录下所有 .json 文件，自动合并为统一数据集。
-# 每个 JSON 文件格式：数组，每元素包含 instruction / input / output 字段。
+# 每个 JSON 元素字段：
+#   instruction : str  — 必填，用户问题
+#   output      : str  — 必填，AI 回答
+#   thinking    : str  — 可选，思考链/推理过程。存在时自动拼接在 output 前：
+#                           "{thinking}\n\n{output}"
+#                         训练时整个 assistant 段均计算 loss，模型同时学习思考和回答。
+#   input       : str  — 可选，额外输入上下文（本数据集未使用）
+#   id / type   : any  — 可选，元数据字段（训练时自动忽略）
 # 支持增量扩展：只需将新 JSON 文件放入此目录即可追加训练数据。
 data_dir: "./data/ai_infra_audio_video"
 

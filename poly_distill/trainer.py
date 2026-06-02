@@ -3,9 +3,12 @@ LoRA SFT 训练核心逻辑。
 
 封装模型加载、LoRA 配置、TrainingArguments 构造及 SFTTrainer 训练流程。
 支持：train/val split、early stopping、NEFTune、梯度裁剪、权重衰减。
+训练输出采用 YOLOv5 风格格式。
 """
 
 import logging
+import sys
+import time
 
 import torch
 from peft import LoraConfig
@@ -13,6 +16,7 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     PreTrainedTokenizer,
+    TrainerCallback,
     TrainingArguments,
 )
 from trl import DataCollatorForCompletionOnlyLM, SFTTrainer
@@ -23,6 +27,115 @@ from poly_distill.dataset import load_and_prepare_data
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# YOLOv5 风格训练输出回调
+# ============================================================
+class YOLOStyleProgressCallback(TrainerCallback):
+    """YOLOv5 风格的训练进度输出。
+
+    每 epoch 输出一行汇总，格式如下:
+        Epoch  gpu_mem  train_loss   val_loss        lr  samples    time
+         1/30    4.2G      1.2345      1.0892   2.0e-04     1755     45s
+         2/30    4.2G      0.9876      0.9521   1.7e-04     1755     43s
+        ...
+
+    训练结束时输出最优指标表格。
+    """
+
+    def __init__(self, total_epochs: int, train_samples: int, val_samples: int = 0):
+        self.total_epochs = total_epochs
+        self.train_samples = train_samples
+        self.val_samples = val_samples
+        self._epoch_start_time = 0.0
+        self._epoch = 0
+        self._train_loss = None
+        self._val_loss = None
+        self._lr = None
+        self._best_val_loss = float("inf")
+        self._best_epoch = 0
+
+    def _print_header(self):
+        header = (
+            f"\n{'Epoch':>8s}  {'gpu_mem':>8s}  "
+            f"{'train_loss':>10s}  {'val_loss':>10s}  "
+            f"{'lr':>10s}  {'samples':>8s}  {'time':>8s}"
+        )
+        print(header, flush=True)
+        print("-" * 78, flush=True)
+
+    def _get_gpu_mem(self) -> str:
+        if torch.cuda.is_available():
+            allocated = torch.cuda.memory_allocated() / (1024 ** 3)
+            return f"{allocated:.1f}G"
+        return "    N/A"
+
+    def _format_epoch_line(self) -> str:
+        epoch_str = f"{self._epoch}/{self.total_epochs}"
+        gpu = self._get_gpu_mem()
+        train = f"{self._train_loss:.4f}" if self._train_loss is not None else "      N/A"
+        val = f"{self._val_loss:.4f}" if self._val_loss is not None else "      N/A"
+        lr = f"{self._lr:.2e}" if self._lr is not None else "      N/A"
+        samples = self.val_samples if self.val_samples > 0 else self.train_samples
+        elapsed = f"{time.time() - self._epoch_start_time:.0f}s" if self._epoch_start_time else "    N/A"
+        return (
+            f"{epoch_str:>8s}  {gpu:>8s}  "
+            f"{train:>10s}  {val:>10s}  "
+            f"{lr:>10s}  {samples:>8d}  {elapsed:>8s}"
+        )
+
+    # ---- TrainerCallback 钩子 ----
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        self._print_header()
+
+    def on_epoch_begin(self, args, state, control, **kwargs):
+        self._epoch_start_time = time.time()
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is None:
+            return
+        if "loss" in logs:
+            self._train_loss = logs["loss"]
+        if "learning_rate" in logs:
+            self._lr = logs["learning_rate"]
+        if "epoch" in logs:
+            self._epoch = int(round(logs["epoch"]))
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        if metrics is None:
+            return
+        if "eval_loss" in metrics:
+            self._val_loss = metrics["eval_loss"]
+            if self._val_loss < self._best_val_loss:
+                self._best_val_loss = self._val_loss
+                self._best_epoch = self._epoch
+
+    def on_epoch_end(self, args, state, control, **kwargs):
+        self._epoch = int(state.epoch) if state.epoch else self._epoch
+        if state.log_history:
+            last = state.log_history[-1]
+            if "loss" in last:
+                self._train_loss = last["loss"]
+            if "learning_rate" in last:
+                self._lr = last["learning_rate"]
+        print(self._format_epoch_line(), flush=True)
+
+    def on_train_end(self, args, state, control, **kwargs):
+        print("-" * 78, flush=True)
+        if self._best_val_loss < float("inf"):
+            print(
+                f"Best metric: eval_loss = {self._best_val_loss:.4f} "
+                f"at epoch {self._best_epoch}",
+                flush=True,
+            )
+            print(f"Training complete: {self._epoch} epochs, best checkpoint saved", flush=True)
+        else:
+            print(f"Training complete: {self._epoch} epochs", flush=True)
+
+
+# ============================================================
+# 模型与分词器
+# ============================================================
 def load_model_and_tokenizer(config: Config) -> tuple:
     """加载 Qwen 模型和分词器。
 
@@ -59,16 +172,15 @@ def load_model_and_tokenizer(config: Config) -> tuple:
     return model, tokenizer
 
 
+# ============================================================
+# LoRA 配置
+# ============================================================
 def build_lora_config(config: Config) -> LoraConfig:
     """构造 LoRA 参数高效微调配置。
 
     LoRA (Low-Rank Adaptation) 核心思想：
       学习低秩增量 ΔW = B·A，其中 B ∈ R^{d×r}, A ∈ R^{r×k}，r << min(d, k)。
       推理时合并为 W' = W + ΔW，无额外延迟。
-
-    工业推荐：
-      - r=8, alpha=16：适用于 400+ 条小数据集，防过拟合。
-      - dropout=0.1：中等 dropout 正则化。
     """
     return LoraConfig(
         r=config.LORA_R,
@@ -80,6 +192,9 @@ def build_lora_config(config: Config) -> LoraConfig:
     )
 
 
+# ============================================================
+# 训练参数
+# ============================================================
 def build_training_args(config: Config) -> TrainingArguments:
     """构造 Hugging Face TrainingArguments。
 
@@ -107,6 +222,7 @@ def build_training_args(config: Config) -> TrainingArguments:
         logging_steps=config.LOGGING_STEPS,
         bf16=torch.cuda.is_available(),
         report_to="none",
+        log_level="warning",  # 抑制默认详细日志，使用 YOLOv5 风格输出
         ddp_find_unused_parameters=False,
     )
 
@@ -125,6 +241,9 @@ def build_training_args(config: Config) -> TrainingArguments:
         raise
 
 
+# ============================================================
+# 主训练流程
+# ============================================================
 def train(config: Config) -> tuple:
     """执行 LoRA SFT 训练主流程。
 
@@ -132,17 +251,17 @@ def train(config: Config) -> tuple:
       1. 加载模型与分词器
       2. 加载并预处理数据集，按比例划分 train/val
       3. 构造 DataCollatorForCompletionOnlyLM（仅对 assistant 回复计算 loss）
-      4. 配置 LoRA 和训练参数（含早停回调）
+      4. 配置 LoRA 和训练参数（含早停 + YOLOv5 风格输出回调）
       5. 实例化 SFTTrainer（含 NEFTune）并开始训练
       6. 保存 LoRA adapter 权重
 
     Returns:
         (SFTTrainer, PreTrainedTokenizer)
     """
-    # ---- 加载模型 ----
+    # ---- 1. 加载模型 ----
     model, tokenizer = load_model_and_tokenizer(config)
 
-    # ---- 加载数据 + train/val split ----
+    # ---- 2. 加载数据 + train/val split ----
     dataset = load_and_prepare_data(config, tokenizer)
 
     train_dataset = dataset
@@ -158,20 +277,25 @@ def train(config: Config) -> tuple:
             len(train_dataset), len(eval_dataset), config.EVAL_SPLIT_RATIO,
         )
 
-    # ---- DataCollator：仅对 assistant 部分计算 loss ----
+    # ---- 3. DataCollator：仅对 assistant 部分计算 loss ----
     data_collator = DataCollatorForCompletionOnlyLM(
         response_template=config.RESPONSE_TEMPLATE,
         tokenizer=tokenizer,
     )
 
-    # ---- LoRA ----
+    # ---- 4. 配置 ----
     peft_config = build_lora_config(config)
-
-    # ---- 训练参数 ----
     training_args = build_training_args(config)
 
+    # ---- YOLOv5 风格输出回调 ----
+    yolo_callback = YOLOStyleProgressCallback(
+        total_epochs=config.NUM_TRAIN_EPOCHS,
+        train_samples=len(train_dataset),
+        val_samples=len(eval_dataset) if eval_dataset else 0,
+    )
+    callbacks = [yolo_callback]
+
     # ---- 早停回调 ----
-    callbacks = []
     if config.EARLY_STOPPING_PATIENCE > 0 and eval_dataset is not None:
         from transformers import EarlyStoppingCallback
         callbacks.append(
@@ -184,6 +308,19 @@ def train(config: Config) -> tuple:
             "早停已启用: patience=%d, threshold=%.4f",
             config.EARLY_STOPPING_PATIENCE, config.EARLY_STOPPING_THRESHOLD,
         )
+
+    # ---- 5. 训练信息摘要 ----
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(
+        "Model: %s | Params: %.1fM total, %.1fM trainable | "
+        "Train: %d samples | Val: %d samples",
+        config.MODEL_ID,
+        total_params / 1e6,
+        trainable_params / 1e6,
+        len(train_dataset),
+        len(eval_dataset) if eval_dataset else 0,
+    )
 
     # ---- 实例化 Trainer ----
     trainer_kwargs = dict(
@@ -198,20 +335,23 @@ def train(config: Config) -> tuple:
 
     trainer = SFTTrainer(**trainer_kwargs)
 
-    # ---- 开始训练 ----
+    # ---- 6. 开始训练 ----
     logger.info("Start SFT training...")
     trainer.train()
 
-    # ---- 保存 LoRA adapter ----
+    # ---- 7. 保存 LoRA adapter ----
     trainer.save_model(config.OUTPUT_DIR)
-    logger.info("Training finished. Saved to: %s", config.OUTPUT_DIR)
+    logger.info("Saved to: %s", config.OUTPUT_DIR)
 
     # 输出最优指标
     if eval_dataset is not None:
         best_metric = trainer.state.best_metric
         best_checkpoint = trainer.state.best_model_checkpoint
         if best_metric is not None:
-            logger.info("Best %s: %.4f", config.METRIC_FOR_BEST_MODEL, best_metric)
-            logger.info("Best checkpoint: %s", best_checkpoint)
+            logger.info(
+                "Best %s: %.4f @ %s",
+                config.METRIC_FOR_BEST_MODEL, best_metric,
+                best_checkpoint or "current",
+            )
 
     return trainer, tokenizer

@@ -129,6 +129,28 @@ model = PeftModel.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
 ```
 
+### Export Standalone Model
+
+The LoRA adapter requires the base model. To distribute independently, merge LoRA weights into a full model:
+
+```bash
+python scripts/export.py                        # Default output: ./models/TinySage-0.5B/
+python scripts/export.py --output ./my-model    # Custom output path
+```
+
+The merged TinySage-0.5B can be loaded directly without PEFT:
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model = AutoModelForCausalLM.from_pretrained(
+    "./models/TinySage-0.5B",
+    device_map="auto",
+    torch_dtype="auto",
+)
+tokenizer = AutoTokenizer.from_pretrained("./models/TinySage-0.5B")
+```
+
 ## Output
 
 After training, the output directory contains:

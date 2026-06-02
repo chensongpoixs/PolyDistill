@@ -528,6 +528,10 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
 
 
 if __name__ == "__main__":
+    import sys
+    # 确保项目根目录在搜索路径中（python poly_distill/eval.py 运行时需要）
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
     from poly_distill.config import load_config, setup_environment
 
     cfg = load_config()

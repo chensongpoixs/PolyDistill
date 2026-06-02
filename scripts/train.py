@@ -12,6 +12,11 @@
 
 import argparse
 import logging
+import os
+import sys
+
+# 将项目根目录加入 Python 搜索路径，确保 scripts/ 下运行时能找到 poly_distill 包
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 from peft import PeftModel

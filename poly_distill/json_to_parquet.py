@@ -88,10 +88,30 @@ def convert_json_to_parquet(input_dir: str, output_dir: str) -> None:
     global_idx = 0
 
     for json_file in json_files:
-        with open(json_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        # 跳过非数据文件（如 HuggingFace 的 dataset_infos.json）
+        if json_file.name in ("dataset_infos.json", "dataset_dict.json"):
+            logger.info("   ⏭️  %s: 跳过（元数据文件）", json_file.name)
+            continue
 
+        try:
+            with open(json_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            logger.warning("   ❌ %s: JSON 解析失败 — %s，已跳过", json_file.name, e)
+            continue
+
+        # 仅处理列表格式的数据集
+        if not isinstance(data, list):
+            logger.info("   ⏭️  %s: 非列表格式（%s），已跳过", json_file.name, type(data).__name__)
+            continue
+
+        skipped = 0
         for item in data:
+            # 跳过非字典类型的条目
+            if not isinstance(item, dict):
+                skipped += 1
+                continue
+
             instruction = item.get("instruction", "")
             thinking = item.get("thinking") or item.get("reasoning") or ""
             response = item.get("output", "")
@@ -113,7 +133,8 @@ def convert_json_to_parquet(input_dir: str, output_dir: str) -> None:
             })
             global_idx += 1
 
-        logger.info("   ✅ %s: %d 条", json_file.name, len(data))
+        skip_info = f"（跳过 {skipped} 条非字典条目）" if skipped else ""
+        logger.info("   ✅ %s: %d 条 %s", json_file.name, len(data) - skipped, skip_info)
 
     logger.info("总计: %d 条样本", len(all_rows))
 

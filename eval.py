@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 import torch
-from datasets import load_dataset
+from datasets import concatenate_datasets, load_dataset
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, PreTrainedTokenizer
 
@@ -360,8 +360,14 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     print("   📊 训练质量评估")
     print("=" * 60)
 
-    # ---- 加载评估数据 ----
-    dataset = load_dataset("json", data_files=config.DATA_FILE, split="train")
+    # ---- 加载评估数据（与训练一致：收集目录下所有 JSON 文件） ----
+    data_dir = Path(config.DATA_DIR)
+    json_files = sorted(data_dir.glob("*.json"))
+    datasets_list = []
+    for f in json_files:
+        ds = load_dataset("json", data_files=str(f), split="train")
+        datasets_list.append(ds)
+    dataset = concatenate_datasets(datasets_list) if len(datasets_list) > 1 else datasets_list[0]
     n_total = len(dataset)
 
     # 选取子集（随机但固定种子，保证可复现）

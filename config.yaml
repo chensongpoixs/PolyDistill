@@ -25,9 +25,11 @@ model_id: "Qwen/Qwen2.5-0.5B-Instruct"
 # 数据
 # ============================================================
 
-# 训练数据集文件路径（相对于项目根目录）。
-# 格式：JSON 数组，每元素包含 instruction / input / output 字段。
-data_file: "./data/ai_infra_audio_video.json"
+# 训练数据目录（相对于项目根目录）。
+# 程序会遍历此目录下所有 .json 文件，自动合并为统一数据集。
+# 每个 JSON 文件格式：数组，每元素包含 instruction / input / output 字段。
+# 支持增量扩展：只需将新 JSON 文件放入此目录即可追加训练数据。
+data_dir: "./data/ai_infra_audio_video"
 
 # ============================================================
 # 路径

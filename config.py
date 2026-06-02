@@ -25,7 +25,7 @@ class Config:
     MODEL_ID: str = "Qwen/Qwen2.5-0.5B-Instruct"
 
     # ---- 数据 ----
-    DATA_FILE: str = "./data/ai_infra_audio_video.json"
+    DATA_DIR: str = "./data"  # 数据目录，自动读取目录下所有 .json 文件并合并
 
     # ---- 路径 ----
     CACHE_DIR: str = "./models/qwen2.5-0.5b"
@@ -88,7 +88,7 @@ _FIELD_MAP = {
     # ---- 模型 ----
     "model_id": "MODEL_ID",
     # ---- 数据 ----
-    "data_file": "DATA_FILE",
+    "data_dir": "DATA_DIR",
     # ---- 路径 ----
     "cache_dir": "CACHE_DIR",
     "output_dir": "OUTPUT_DIR",

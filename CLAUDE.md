@@ -41,8 +41,7 @@ ai_infra/
 ├── eval.py           # PPL / ROUGE-L / 生成样本 评测（依赖 config）
 ├── inference.py      # 入口 main：训练 → 推理对比 → 全量评测（依赖 config + train + eval）
 ├── requirements.txt  # Python 依赖清单（Python ≥ 3.10）
-├── data/
-│   └── ai_infra_audio_video.json
+├── data/             # 训练数据目录（自动加载所有 .json 文件并合并）
 ├── img/              # 流程图
 ├── eval_report.md    # 评测报告（自动生成）
 └── eval_results.json # 结构化评测结果（自动生成）

@@ -19,6 +19,50 @@ three state-of-the-art teachers, deployable on edge devices with minimal footpri
 
 ---
 
+## Qwen2.5 → Qwen3 Upgrade Notes
+
+PolyDistill has upgraded the student model from Qwen2.5-0.5B to the Qwen3 family. Key improvements:
+
+### Architecture
+
+| Dimension | Qwen2.5 | Qwen3 |
+|-----------|---------|-------|
+| Attention | Standard QKV bias | **QK-Norm**, QKV bias removed — more stable training |
+| Pretraining | 18T tokens | **36T tokens** across 3 stages (general → reasoning → long-context 32K) |
+| Multilingual | 29 languages | **119 languages and dialects** |
+| Context Length | 32K | 32K (trained with 32K sequences natively) |
+
+### Core Innovation: Dual-Mode Thinking
+
+Qwen3's breakthrough — **a single model supporting both inference modes**:
+
+- **Thinking Mode**: Internal chain-of-thought for complex multi-step reasoning (math proofs, debugging, logic)
+- **Non-Thinking Mode**: Fast context-driven responses for standard Q&A, translation, summarization
+- **Auto-switching**: Dynamically selects mode based on query complexity — no manual model switching
+- **Thinking Budget**: Adaptive compute allocation — spend more tokens on hard problems, less on easy ones
+
+### Training Strategy
+
+| Stage | Qwen2.5 | Qwen3 |
+|-------|---------|-------|
+| Post-training | SFT + Multi-stage RL | **4-stage**: Long CoT cold-start → Reasoning RL → Thought-mode fusion → General RL |
+| Distillation | None built-in | **On-policy + Off-policy dual distillation**, large model teaches small model |
+| RL Sample Efficiency | — | **<4,000 questions** for significant reasoning gains |
+
+### Performance
+
+- SOTA on code generation, math reasoning, and agent benchmarks
+- **0.6B model rivals larger MoE and some closed-source models**
+- Significant improvements over Qwen2.5 across all benchmarks
+
+### Impact on This Project
+
+- Stronger base capability raises the ceiling for distillation fine-tuning
+- Thinking mode aligns perfectly with PolyDistill's `thinking` data field for reasoning-chain distillation
+- Expanded multilingual coverage enables broader application scenarios
+
+---
+
 ## Project Structure
 
 ```

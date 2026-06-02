@@ -37,6 +37,10 @@ python scripts/train.py --eval-only
 
 # 单独运行评测
 python poly_distill/eval.py
+
+# LoRA 合并导出为独立模型（TinySage-0.5B）
+python scripts/export.py
+python scripts/export.py --output ./my-tinysage
 ```
 
 ## Architecture

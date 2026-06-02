@@ -71,7 +71,7 @@ pip install -r requirements.txt
 ```json
 [
   {
-    "instruction": "面试问题...",
+    "instruction": "问题...",
     "input": "",
     "thinking": "思考过程...",
     "output": "最终回答..."

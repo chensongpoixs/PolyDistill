@@ -24,13 +24,13 @@ class Config:
     """
 
     # ---- 模型 ----
-    MODEL_ID: str = "Qwen/Qwen2.5-0.5B-Instruct"
+    MODEL_ID: str = "Qwen/Qwen3-0.6B"
 
     # ---- 数据 ----
     DATA_DIR: str = "./data"  # 数据目录，自动读取目录下所有 .json 文件并合并
 
     # ---- 路径 ----
-    CACHE_DIR: str = "./models/qwen2.5-0.5b"
+    CACHE_DIR: str = "./models/qwen3-0.6b"
     OUTPUT_DIR: str = "./lora_sft_ai_infra_audio_video_output"
 
     # ---- LoRA 参数 ----
@@ -241,7 +241,7 @@ def setup_environment(config: Config) -> None:
     """配置运行环境：镜像源、CUDA 设备、禁用分布式。
 
     为什么禁用分布式（DDP）？
-      - 本脚本面向单 GPU 微调场景（0.5B 小模型 + LoRA），无需多卡。
+      - 本脚本面向单 GPU 微调场景（0.6B 小模型 + LoRA），无需多卡。
       - 显式清理 DDP 环境变量可防止误触发 torch.distributed 初始化，
         避免出现 "Address already in use" 或端口冲突等报错。
     """

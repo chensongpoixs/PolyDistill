@@ -54,7 +54,7 @@
       学生模型 (Student Model)
     </text>
     <text x="200" y="50" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="11" text-anchor="middle" fill="#666">
-      Qwen2.5-0.5B (小模型)
+      Qwen3-0.6B (小模型)
     </text>
     
     <!-- 模型结构 -->

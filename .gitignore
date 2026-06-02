@@ -2,9 +2,9 @@
 /__pycache__
 /dataset_cache/c06b7c413a16691b
 /lora_sft_ai_infra_audio_video_output
-/models/qwen2.5-0.5b/models--Qwen--Qwen2.5-0.5B-Instruct/.no_exist/7ae557604adf67be50417f59c2c2f167def9a775
+/models/qwen3-0.6b/models--Qwen--Qwen3-0.6B/.no_exist/7ae557604adf67be50417f59c2c2f167def9a775
 /models
-/models/qwen2.5-0.5b/models--Qwen--Qwen2.5-0.5B-Instruct/refs
+/models/qwen3-0.6b/models--Qwen--Qwen3-0.6B/refs
 /train.log
 /poly_distill/__pycache__
 /my-tinysage

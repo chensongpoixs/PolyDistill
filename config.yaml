@@ -13,9 +13,9 @@
 # 1. 模型
 # ============================================================
 # 学生模型：Hugging Face 模型 ID 或本地路径。
-# 支持 Qwen2.5、Llama3、Mistral 等因果语言模型家族。
-# 0.5B 规模适合 8–12GB 显存的单卡微调。
-model_id: "Qwen/Qwen2.5-0.5B-Instruct"
+# 支持 Qwen3、Llama3、Mistral 等因果语言模型家族。
+# 0.6B 规模适合 8–12GB 显存的单卡微调。
+model_id: "Qwen/Qwen3-0.6B"
 
 # ============================================================
 # 2. 数据
@@ -38,7 +38,7 @@ data_dir: "./data/ai_infra_audio_video"
 # ============================================================
 # 模型下载缓存目录。
 # 首次运行从 Hugging Face 下载到此目录（约 1GB），之后直接读缓存。
-cache_dir: "./models/qwen2.5-0.5b"
+cache_dir: "./models/qwen3-0.6b"
 
 # LoRA adapter 输出目录。
 # 训练完成后在此保存 adapter 权重（约几 MB）和配置文件。
@@ -173,7 +173,7 @@ training:
 
   # ---- 批次配置 ----
   # 每张 GPU 的 micro batch size。
-  # 0.5B 模型 BF16 训练时，4 约占用 6–8GB 显存。
+  # 0.6B 模型 BF16 训练时，4 约占用 6–8GB 显存。
   per_device_batch_size: 4
 
   # 梯度累积步数。
@@ -287,7 +287,7 @@ training:
 # 仅对 assistant 回复计算 loss。
 #
 # 常见模型标记：
-#   Qwen2.5:  "<|im_start|>assistant\n"
+#   Qwen3:    "<|im_start|>assistant\n"
 #   Llama3:   "<|start_header_id|>assistant<|end_header_id|>\n\n"
 #   ChatGLM:  "<|assistant|>"
 response_template: "<|im_start|>assistant\n"
@@ -438,4 +438,4 @@ eval:
 #     — 蒸馏温度 T=4，最大化暗知识迁移
 #     — 可开启灰盒蒸馏（distill_weight > 0，需要教师 logits）
 #     — 预期：ROUGE-L > 0.4，稳定输出高质量专业回答
-#     — 可考虑升级学生模型（Qwen2.5-1.5B）进一步提升上限
+#     — 可考虑升级学生模型（Qwen3-1.7B）进一步提升上限

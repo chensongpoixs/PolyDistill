@@ -71,10 +71,10 @@
     <!-- 模型图标 -->
     <circle cx="50" cy="80" r="35" fill="#4caf50" opacity="0.2"/>
     <text x="50" y="75" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#4caf50">
-      Qwen2.5
+      Qwen3
     </text>
     <text x="50" y="90" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#4caf50">
-      -0.5B
+      -0.6B
     </text>
     
     <!-- 配置参数 -->

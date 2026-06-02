@@ -1,6 +1,6 @@
 # TinySage: A Multi-Teacher Distilled Small Language Model
 
-TinySage is a 0.5B small language model (SLM) based on Qwen2.5-0.5B.  
+TinySage is a 0.6B small language model (SLM) based on Qwen3-0.6B.  
 It was trained using **PolyDistill**, a flexible multi-teacher knowledge distillation framework 
 that orchestrates API-based teachers (GPT, Claude, Gemini) 
 and a local student model under a unified training pipeline.
@@ -15,7 +15,7 @@ The result: a tiny yet capable model that inherits the collective strengths of
 three state-of-the-art teachers, deployable on edge devices with minimal footprint.
 
 **Framework**: PolyDistill (included in this repo)  
-**Model**: TinySage-0.5B
+**Model**: TinySage-0.6B
 
 ---
 
@@ -104,7 +104,7 @@ python scripts/train.py --eval-only         # Evaluate existing model only
 Edit `config.yaml` — no Python code changes needed:
 
 ```yaml
-model_id: "Qwen/Qwen2.5-0.5B-Instruct"
+model_id: "Qwen/Qwen3-0.6B"
 training:
   num_train_epochs: 100
   learning_rate: 2.0e-4
@@ -118,7 +118,7 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 base_model = AutoModelForCausalLM.from_pretrained(
-    "Qwen/Qwen2.5-0.5B-Instruct",
+    "Qwen/Qwen3-0.6B",
     device_map="auto",
     torch_dtype="auto",
 )
@@ -126,7 +126,7 @@ model = PeftModel.from_pretrained(
     base_model,
     "./lora_sft_ai_infra_audio_video_output",
 )
-tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
 ```
 
 ### Export Standalone Model
@@ -134,21 +134,21 @@ tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
 The LoRA adapter requires the base model. To distribute independently, merge LoRA weights into a full model:
 
 ```bash
-python scripts/export.py                        # Default output: ./models/TinySage-0.5B/
+python scripts/export.py                        # Default output: ./models/TinySage-0.6B/
 python scripts/export.py --output ./my-model    # Custom output path
 ```
 
-The merged TinySage-0.5B can be loaded directly without PEFT:
+The merged TinySage-0.6B can be loaded directly without PEFT:
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 model = AutoModelForCausalLM.from_pretrained(
-    "./models/TinySage-0.5B",
+    "./models/TinySage-0.6B",
     device_map="auto",
     torch_dtype="auto",
 )
-tokenizer = AutoTokenizer.from_pretrained("./models/TinySage-0.5B")
+tokenizer = AutoTokenizer.from_pretrained("./models/TinySage-0.6B")
 ```
 
 ## Output

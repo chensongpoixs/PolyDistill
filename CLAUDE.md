@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **PolyDistill** — 多教师知识蒸馏训练框架。统一调度 GPT、Claude、Gemini 等商业 API 教师模型，将它们的集体知识蒸馏到本地学生模型。
 
-产出模型 **TinySage-0.5B**：基于 `Qwen2.5-0.5B-Instruct`，经多教师黑盒蒸馏 + LoRA SFT 微调，专注 AI Infra（音视频/流媒体/GPU/CUDA）领域。
+产出模型 **TinySage-0.6B**：基于 `Qwen3-0.6B`，经多教师黑盒蒸馏 + LoRA SFT 微调，专注 AI Infra（音视频/流媒体/GPU/CUDA）领域。
 
 PolyDistill 核心能力：
 - 跨架构商业大模型的黑盒蒸馏
@@ -38,7 +38,7 @@ python scripts/train.py --eval-only
 # 单独运行评测
 python poly_distill/eval.py
 
-# LoRA 合并导出为独立模型（TinySage-0.5B）
+# LoRA 合并导出为独立模型（TinySage-0.6B）
 python scripts/export.py
 python scripts/export.py --output ./my-tinysage
 ```
@@ -121,7 +121,7 @@ Parquet 文件 (reasoning-distill schema: messages/thinking/response/system)
 
 | 参数 | 值 |
 |------|-----|
-| 基座模型 | `Qwen/Qwen2.5-0.5B-Instruct` |
+| 基座模型 | `Qwen/Qwen3-0.6B` |
 | LoRA | r=8, alpha=16, dropout=0.1, target=(q_proj, v_proj) |
 | Effective batch | 4 × 8 = 32 |
 | LR | 2e-4, cosine + 3% warmup |

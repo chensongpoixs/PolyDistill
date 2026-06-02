@@ -1,5 +1,5 @@
 """
-TinySage-0.5B 模型打包导出。
+TinySage-0.6B 模型打包导出。
 
 将 LoRA adapter 合并到基座模型，产出可独立分发和推理的完整模型。
 
@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 
 
 def export_tinysage(config, output_dir: str) -> None:
-    """合并 LoRA 权重到基座模型并保存为 TinySage-0.5B。
+    """合并 LoRA 权重到基座模型并保存为 TinySage-0.6B。
 
     步骤：
-      1. 加载基座模型（Qwen2.5-0.5B-Instruct）
+      1. 加载基座模型（Qwen3-0.6B）
       2. 加载 LoRA adapter
       3. merge_and_unload() 融合权重
       4. 保存完整模型 + tokenizer 到输出目录
@@ -93,7 +93,7 @@ def export_tinysage(config, output_dir: str) -> None:
 
 
 def _write_model_card(output_path: Path, config) -> None:
-    """生成 TinySage-0.5B 模型卡片。"""
+    """生成 TinySage-0.6B 模型卡片。"""
     card = f"""---
 language:
 - zh
@@ -108,7 +108,7 @@ tags:
 base_model: {config.MODEL_ID}
 ---
 
-# TinySage-0.5B
+# TinySage-0.6B
 
 A multi-teacher distilled small language model for AI infrastructure domain.
 
@@ -124,12 +124,12 @@ A multi-teacher distilled small language model for AI infrastructure domain.
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 model = AutoModelForCausalLM.from_pretrained(
-    "TinySage-0.5B",
+    "TinySage-0.6B",
     device_map="auto",
     torch_dtype="auto",
     trust_remote_code=True,
 )
-tokenizer = AutoTokenizer.from_pretrained("TinySage-0.5B", trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained("TinySage-0.6B", trust_remote_code=True)
 
 messages = [
     {{"role": "system", "content": "You are a helpful assistant."}},
@@ -154,14 +154,14 @@ Same as the base model ({config.MODEL_ID}).
 # 入口
 # ============================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="TinySage-0.5B 模型打包导出")
+    parser = argparse.ArgumentParser(description="TinySage-0.6B 模型打包导出")
     parser.add_argument(
         "--config", type=str, default=None,
         help="YAML 配置文件路径（默认: ./config.yaml）",
     )
     parser.add_argument(
-        "--output", type=str, default="./models/TinySage-0.5B",
-        help="合并后模型的输出目录（默认: ./models/TinySage-0.5B）",
+        "--output", type=str, default="./models/TinySage-0.6B",
+        help="合并后模型的输出目录（默认: ./models/TinySage-0.6B）",
     )
     args = parser.parse_args()
 

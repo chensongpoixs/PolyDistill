@@ -8,7 +8,7 @@
 >
 > 当前基线：
 >
-> * Base Model：Qwen2.5-0.5B
+> * Base Model：Qwen3-0.6B
 > * Training：LoRA
 > * Dataset：432 条
 > * 训练方式：SFT
@@ -351,7 +351,7 @@ test: 10%
 ### 第一阶段
 
 ```text
-Qwen2.5-0.5B
+Qwen3-0.6B
 ```
 
 适用于：

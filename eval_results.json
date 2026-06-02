@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-06-03 03:03:19",
+  "model_id": "Qwen/Qwen3-0.6B",
+  "lora_output": "./lora_sft_ai_infra_audio_video_output",
+  "eval_num_samples": 50,
+  "perplexity": [
+    {
+      "label": "Base",
+      "avg_ppl": 46.31,
+      "avg_loss": 3.8353
+    },
+    {
+      "label": "LoRA",
+      "avg_ppl": 18.6,
+      "avg_loss": 2.923
+    }
+  ],
+  "rouge_l": [
+    {
+      "label": "Base",
+      "rouge_l_f1": 0.1087,
+      "num_samples": 50
+    },
+    {
+      "label": "LoRA",
+      "rouge_l_f1": 0.1356,
+      "num_samples": 50
+    }
+  ],
+  "generation_samples": [
+    {
+      "instruction": "简要介绍Swin Transformer的窗口注意力和移位窗口机制，为什么它能作为通用视觉骨干替代CNN？",
+      "reference": "Swin Transformer在非重叠窗口内计算自注意力，计算量由O(N²)降为O(N*W²)（W为窗口大小）；通过Layer层的移位操作，使不同窗口的信息可以混合。这种层次化结构和线性复杂度使其能够生成多尺度特征图，直接替代ResNet等CNN骨干。在我的目标检测微调中，Swin-Tiny精度超过ResNet50。",
+      "base": "system\nYou are a helpful assistant.\nuser\n简要介绍Swin Transformer的窗口注意力和移位窗口机制，为什么它能作为通用视觉骨干替代CNN？\nassistant\nSwin Transformer是一种基于Transformer架构的多模态预训练模型，可以用于图像、文本等多模态任务。它的窗口注意力机制通过在每个时间步内对输入进行局部窗口处理，使得模型能",
+      "lora": "system\nYou are a helpful assistant.\nuser\n简要介绍Swin Transformer的窗口注意力和移位窗口机制，为什么它能作为通用视觉骨干替代CNN？\nassistant\n### 面试官目的\n考察对Transformer在图像处理中的应用深度理解。\n\n### 回答思路\n解释窗口注意力如何通过滑动窗口计算局部特征图，并与位置信息结合。说明移位窗口如何将不同尺度的"
+    },
+    {
+      "instruction": "解释C++的RAII机制，并举例说明如何在你的项目中应用。",
+      "reference": "RAII将资源分配与对象构造绑定，释放与析构绑定。例如自定义`std::lock_guard`类似的互斥锁守卫；或者`cudaEvent_t`包装类，构造时cudaEventCreate，析构时cudaEventDestroy。这样即使抛出异常也能正确释放资源，代码更安全。",
+      "base": "system\nYou are a helpful assistant.\nuser\n解释C++的RAII机制，并举例说明如何在你的项目中应用。\nassistant\nRAII（Resource Acquisition Is Initialization）是一种面向对象编程中的概念，它允许你在创建一个资源时自动获取和释放该资源。这使得代码更加简洁、易于维护。\n\n### RAII 的基本思想\n\n1. **",
+      "lora": "system\nYou are a helpful assistant.\nuser\n解释C++的RAII机制，并举例说明如何在你的项目中应用。\nassistant\n### 面试官目的\n考察对C++ RAII底层实现的理解，以及在实际开发中的应用。\n\n### 回答思路\n先介绍RAII的基本概念（类、对象、指针），然后给出一个简单的例子，如创建文件句柄时使用`std::shared_ptr<FILE>`"
+    },
+    {
+      "instruction": "请描述Whisper-large-v3结合VAD实现流式语音识别的设计，以及如何控制单段延迟小于1秒。",
+      "reference": "系统采用WebRTC VAD分析每帧，检测到语音激活后将PCM数据写入环形缓冲区，当连续静音超过500ms或累计语音达到2s时，将缓冲区数据截取为一个语音段。Whisper-large-v3运行在4090上，2s音频推理约150ms。通过流水线，当VAD判断语音段结束时立即提交推理任务，从语音结束到识别文本输出平均延迟800ms。同时，对于长句，采用流式分片尾包发送，进一步减小首字延迟。",
+      "base": "system\nYou are a helpful assistant.\nuser\n请描述Whisper-large-v3结合VAD实现流式语音识别的设计，以及如何控制单段延迟小于1秒。\nassistant\nWhisper-large-v3是一个基于深度学习的语音识别模型，它使用了Transformer架构和卷积神经网络（CNN）来处理音频数据。在Whisper-large-v3中，我们使用了一个叫",
+      "lora": "system\nYou are a helpful assistant.\nuser\n请描述Whisper-large-v3结合VAD实现流式语音识别的设计，以及如何控制单段延迟小于1秒。\nassistant\n### 面试官目的\n考察对大规模模型在实时应用中的能力。\n\n### 回答思路\n说明使用多线程录音、多路VAD（如TTS），并给出延时监控和重传机制。\n\n### 思考过程\n我们采用两组录音线程：一"
+    },
+    {
+      "instruction": "如何利用知识蒸馏压缩CNN模型用于实时视频处理？请描述训练流程。",
+      "reference": "训练学生时，温度T升高平滑分布，总loss = α * KL(softmax_teacher/T, softmax_student/T) + (1-α) * CE(y, student)。在视频行为分类中，我用此方法将模型缩小4倍，精度仅降2%，达到实时。",
+      "base": "system\nYou are a helpful assistant.\nuser\n如何利用知识蒸馏压缩CNN模型用于实时视频处理？请描述训练流程。\nassistant\n1. 数据预处理：首先，我们需要对输入的视频数据进行预处理，包括图像增强、去噪、裁剪等操作。\n\n2. 特征提取：然后，我们使用卷积神经网络（CNN）来提取特征。在这个过程中，我们可以将原始图像转换为特征向量，这些特征可以是像素值、纹",
+      "lora": "system\nYou are a helpful assistant.\nuser\n如何利用知识蒸馏压缩CNN模型用于实时视频处理？请描述训练流程。\nassistant\n### 面试官目的\n考察对深度学习在边缘计算中的应用理解，以及实际工程化能力。\n\n### 回答思路\n先介绍知识蒸馏原理，然后说明训练过程：将预训练的CNN权重作为输入，通过监督学习生成新的权重；最后用新权重替换原网络。\n\n### 思"
+    },
+    {
+      "instruction": "什么是C++的CRTP（奇异递归模板模式）？有什么应用？",
+      "reference": "`template<typename T> class Base { void interface() { static_cast<T*>(this)->impl(); } };`。相比虚函数，无运行时开销。适用于性能关键且类型确定的场景。我的CUDA资源管理类中使用了类似技巧。",
+      "base": "system\nYou are a helpful assistant.\nuser\n什么是C++的CRTP（奇异递归模板模式）？有什么应用？\nassistant\nC++的CRTP（奇异递归模板模式）是一种设计模式，它允许一个类继承另一个类，并且这个继承关系可以是递归的。这种模式使得代码更加简洁和易于维护。\n\n在C++中，CRTP通常用于实现多态性。当一个类需要处理多个不同的数据类型时，可以通过CRT",
+      "lora": "system\nYou are a helpful assistant.\nuser\n什么是C++的CRTP（奇异递归模板模式）？有什么应用？\nassistant\n### 面试官目的\n算法抽象。\n\n### 回答思路\nC++17引入，用于实现多态。通过模板参数`typename T::template Function`，将函数封装为类。\n\n### 思考过程\n例如`std::vector<T>::pus"
+    }
+  ]
+}

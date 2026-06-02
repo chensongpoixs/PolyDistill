@@ -154,7 +154,7 @@
   <g transform="translate(100, 450)">
     <rect x="0" y="0" width="700" height="120" fill="#fff8e1" stroke="#f39c12" stroke-width="2" rx="8"/>
     <text x="350" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#f39c12">
-      参数量对比 (以 Qwen2.5-0.5B 为例)
+      参数量对比 (以 Qwen3-0.6B 为例)
     </text>
     
     <!-- 全量微调 -->

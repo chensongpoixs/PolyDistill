@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**PolyDistill** — 多教师知识蒸馏训练框架。统一调度 GPT-4o、Claude 3.5 Sonnet、Gemini 1.5 Pro 等商业 API 教师模型，将它们的集体知识蒸馏到本地学生模型。
+**PolyDistill** — 多教师知识蒸馏训练框架。统一调度 GPT、Claude、Gemini 等商业 API 教师模型，将它们的集体知识蒸馏到本地学生模型。
 
 产出模型 **TinySage-0.5B**：基于 `Qwen2.5-0.5B-Instruct`，经多教师黑盒蒸馏 + LoRA SFT 微调，专注 AI Infra（音视频/流媒体/GPU/CUDA）领域。
 

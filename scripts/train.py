@@ -18,12 +18,11 @@ import sys
 # 将项目根目录加入 Python 搜索路径，确保 scripts/ 下运行时能找到 poly_distill 包
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import torch
-from peft import PeftModel
-from transformers import AutoModelForCausalLM, PreTrainedTokenizer
+# 注意：不在此处导入 torch / transformers / peft 等重模块。
+# HF_ENDPOINT 环境变量必须在这些模块初始化之前设置，否则国内镜像不生效。
+# 所有重模块导入延迟到 setup_environment() 调用之后。
 
 from poly_distill.config import Config, load_config
-from poly_distill.trainer import train
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +30,12 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # 快速推理对比（单样本，定性观察）
 # ============================================================
-def quick_compare(config: Config, tokenizer: PreTrainedTokenizer) -> None:
-    """用一条测试问题对比 base vs lora 的回答质量。
+def quick_compare(config: Config, tokenizer) -> None:
+    """用一条测试问题对比 base vs lora 的回答质量。"""
+    import torch
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM
 
-    这是训练后最直观的检查——一眼看出模型是否学到了领域知识。
-    """
     test_question = (
         "解释CNN中的感受野（Receptive Field）概念，在设计视频降噪网络时，感受野大小如何影响去噪效果？"
     )
@@ -57,7 +57,7 @@ def quick_compare(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     logger.info("LoRA 模型:\n%s", lora_answer)
 
 
-def _generate(model, tokenizer: PreTrainedTokenizer, question: str) -> str:
+def _generate(model, tokenizer, question: str) -> str:
     """单次推理。"""
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    setup_environment(cfg)
+    setup_environment(cfg)  # HF_ENDPOINT 在此设置，必须早于 transformers 导入！
 
     if args.eval_only:
         # 仅评测模式：直接加载已有 adapter 做全量评估
@@ -109,6 +109,7 @@ if __name__ == "__main__":
         run_evaluation(cfg, tokenizer)
     else:
         # 完整流水线：训练 → 快速推理 → 全量评测
+        from poly_distill.trainer import train
         trainer, tokenizer = train(cfg)
         quick_compare(cfg, tokenizer)
 

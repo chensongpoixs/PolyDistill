@@ -18,9 +18,8 @@ from pathlib import Path
 # 将项目根目录加入 Python 搜索路径，确保 scripts/ 下运行时能找到 poly_distill 包
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import torch
-from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+# 注意：不在此处导入 torch / transformers / peft 等重模块。
+# HF_ENDPOINT 环境变量必须在这些模块初始化之前设置，否则国内镜像不生效。
 
 from poly_distill.config import load_config, setup_environment
 
@@ -36,6 +35,10 @@ def export_tinysage(config, output_dir: str) -> None:
       3. merge_and_unload() 融合权重
       4. 保存完整模型 + tokenizer 到输出目录
     """
+    import torch
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
     output_path = Path(output_dir)
     if output_path.exists():
         logger.warning("输出目录已存在: %s，将覆盖", output_path)
@@ -111,7 +114,7 @@ A multi-teacher distilled small language model for AI infrastructure domain.
 
 - **Base model**: {config.MODEL_ID}
 - **Training framework**: [PolyDistill](https://github.com/chensongpoixs/PolyDistill)
-- **Teachers**: GPT-4o, Claude 3.5 Sonnet, Gemini 1.5 Pro
+- **Teachers**: GPT, Claude, Gemini
 - **Distillation method**: Black-box instruction distillation + LoRA SFT (r={config.LORA_R})
 - **Domain**: AI Infra (audio/video codecs, streaming protocols, GPU/CUDA, etc.)
 

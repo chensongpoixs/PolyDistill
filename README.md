@@ -1,7 +1,7 @@
 # TinySage: 多教师蒸馏小语言模型
 
 TinySage 是一个基于 Qwen2.5-0.5B 的 0.5B 小模型，使用自研蒸馏训练框架 **PolyDistill** 
-统一调度 GPT-4o、Claude 3.5 Sonnet、Gemini 1.5 Pro 三个 API 教师与学生模型的训练。
+统一调度 GPT、Claude、Gemini 等商业 API 教师模型与学生模型的训练。
 
 PolyDistill 核心能力：
 - 支持跨架构商业大模型的黑盒蒸馏
@@ -51,7 +51,7 @@ PolyDistill/
 pip install -r requirements.txt
 ```
 
-> GPU 驱动要求：NVIDIA Driver ≥ 525（CUDA 12 兼容）。推荐 Ampere 及以上架构（3090/4090/A100 等）以支持 BF16。
+> GPU 驱动要求：NVIDIA Driver ≥ 525（CUDA 12 兼容）。推荐 Ampere 及以上架构（3090/4090/5090/A100 等）以支持 BF16。
 
 ## 数据集
 

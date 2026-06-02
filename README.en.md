@@ -2,7 +2,7 @@
 
 TinySage is a 0.5B small language model (SLM) based on Qwen2.5-0.5B.  
 It was trained using **PolyDistill**, a flexible multi-teacher knowledge distillation framework 
-that orchestrates API-based teachers (GPT-4o, Claude 3.5 Sonnet, Gemini 1.5 Pro) 
+that orchestrates API-based teachers (GPT, Claude, Gemini) 
 and a local student model under a unified training pipeline.
 
 PolyDistill handles:
@@ -54,7 +54,7 @@ PolyDistill/
 pip install -r requirements.txt
 ```
 
-> GPU requirement: NVIDIA Driver ≥ 525 (CUDA 12 compatible). Ampere+ architecture recommended (3090/4090/A100) for BF16 support.
+> GPU requirement: NVIDIA Driver ≥ 525 (CUDA 12 compatible). Ampere+ architecture recommended (3090/4090/5090/A100) for BF16 support.
 
 ## Dataset
 

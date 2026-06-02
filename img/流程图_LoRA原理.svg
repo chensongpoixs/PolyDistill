@@ -1,0 +1,188 @@
+<svg width="900" height="600" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景 -->
+  <rect width="900" height="600" fill="white" stroke="none"/>
+  
+  <!-- 标题 -->
+  <text x="450" y="30" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="24" font-weight="bold" text-anchor="middle" fill="#333">
+    LoRA 参数高效微调原理
+  </text>
+  <text x="450" y="55" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" text-anchor="middle" fill="#666">
+    Low-Rank Adaptation: 低秩分解实现高效微调
+  </text>
+  
+  <!-- 全量微调 vs LoRA 对比 -->
+  
+  <!-- 全量微调 -->
+  <g transform="translate(50, 100)">
+    <rect x="0" y="0" width="380" height="180" fill="#ffe0e0" stroke="#e74c3c" stroke-width="2" rx="8"/>
+    <text x="190" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#e74c3c">
+      全量微调 (Full Fine-Tuning)
+    </text>
+    
+    <!-- 原始模型 -->
+    <rect x="50" y="50" width="100" height="100" fill="#e74c3c" opacity="0.1" rx="4"/>
+    <text x="100" y="80" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="11" text-anchor="middle" fill="#c0392b">
+      原始模型权重
+    </text>
+    <text x="100" y="100" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#e74c3c">
+      1730 亿参数
+    </text>
+    
+    <!-- 更新箭头 -->
+    <path d="M200,100 L300,100" stroke="#e74c3c" stroke-width="3" marker-end="url(#arrow1)"/>
+    <defs>
+      <marker id="arrow1" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#e74c3c"/>
+      </marker>
+    </defs>
+    
+    <!-- 更新后的模型 -->
+    <rect x="320" y="50" width="100" height="100" fill="#e74c3c" opacity="0.3" rx="4"/>
+    <text x="370" y="80" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="11" text-anchor="middle" fill="#c0392b">
+      更新后的权重
+    </text>
+    <text x="370" y="100" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#e74c3c">
+      1730 亿参数全部更新
+    </text>
+    
+    <!-- 缺点 -->
+    <text x="190" y="140" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#c0392b">
+      ✗ 显存需求: 1730B × 4Bytes ≈ 6.5TB
+    </text>
+    <text x="190" y="158" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#c0392b">
+      ✗ 训练时间: 数天
+    </text>
+  </g>
+  
+  <!-- LoRA -->
+  <g transform="translate(470, 100)">
+    <rect x="0" y="0" width="380" height="180" fill="#d5f5e3" stroke="#27ae60" stroke-width="2" rx="8"/>
+    <text x="190" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#27ae60">
+      LoRA (Low-Rank Adaptation)
+    </text>
+    
+    <!-- 原始模型 (冻结) -->
+    <rect x="50" y="50" width="100" height="100" fill="#27ae60" opacity="0.1" rx="4"/>
+    <text x="100" y="80" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="11" text-anchor="middle" fill="#27ae60">
+      原始模型权重
+    </text>
+    <text x="100" y="100" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#27ae60">
+      1730 亿参数
+    </text>
+    <text x="100" y="118" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="9" text-anchor="middle" fill="#27ae60">
+      (冻结, 不训练)
+    </text>
+    
+    <!-- LoRA A 矩阵 -->
+    <rect x="200" y="40" width="60" height="40" fill="#3498db" opacity="0.3" rx="4"/>
+    <text x="230" y="60" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#3498db">
+      LoRA A
+    </text>
+    <text x="230" y="75" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="9" text-anchor="middle" fill="#3498db">
+      (1730B, r)
+    </text>
+    
+    <!-- LoRA B 矩阵 -->
+    <rect x="200" y="110" width="60" height="40" fill="#f39c12" opacity="0.3" rx="4"/>
+    <text x="230" y="130" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#f39c12">
+      LoRA B
+    </text>
+    <text x="230" y="145" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="9" text-anchor="middle" fill="#f39c12">
+      (r, 1730B)
+    </text>
+    
+    <!-- 更新箭头 -->
+    <path d="M170,90 L200,70" stroke="#3498db" stroke-width="2" marker-end="url(#arrow2)"/>
+    <path d="M170,110 L200,130" stroke="#f39c12" stroke-width="2" marker-end="url(#arrow3)"/>
+    
+    <defs>
+      <marker id="arrow2" markerWidth="8" markerHeight="6" refX="0" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#3498db"/>
+      </marker>
+      <marker id="arrow3" markerWidth="8" markerHeight="6" refX="0" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#f39c12"/>
+      </marker>
+    </defs>
+    
+    <!-- 输出 -->
+    <path d="M260,90 L320,90" stroke="#27ae60" stroke-width="3" marker-end="url(#arrow4)"/>
+    <defs>
+      <marker id="arrow4" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#27ae60"/>
+      </marker>
+    </defs>
+    
+    <!-- 结果 -->
+    <text x="350" y="95" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="11" text-anchor="middle" fill="#27ae60">
+      更新后的权重 = 原始 + B×A
+    </text>
+    
+    <!-- 优势 -->
+    <text x="190" y="140" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#27ae60">
+      ✓ 显存需求: 仅 r × 2 × 4Bytes ≈ 1.3MB (r=16)
+    </text>
+    <text x="190" y="158" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#27ae60">
+      ✓ 训练时间: 数分钟
+    </text>
+  </g>
+  
+  <!-- 数学公式 -->
+  <g transform="translate(200, 320)">
+    <rect x="0" y="0" width="500" height="100" fill="#f0f9ff" stroke="#3498db" stroke-width="2" rx="8"/>
+    <text x="250" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#3498db">
+      LoRA 核心公式
+    </text>
+    <text x="250" y="55" font-family="Consolas, 'Courier New', monospace" font-size="16" text-anchor="middle" fill="#333">
+      ΔW = B × A
+    </text>
+    <text x="250" y="75" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="11" text-anchor="middle" fill="#666">
+      其中: W ∈ R^(d×k), A ∈ R^(d×r), B ∈ R^(r×k), r &lt;&lt; min(d,k)
+    </text>
+    
+    <text x="30" y="90" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+      • W: 原始权重矩阵 (如 Q, K, V 投影)
+    </text>
+    <text x="30" y="105" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+      • A, B: 低秩矩阵，r 是秩（本例 r=16）
+    </text>
+    <text x="30" y="120" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+      • ΔW: 更新量，B×A 的结果与 W 维度相同
+    </text>
+  </g>
+  
+  <!-- 参数量对比 -->
+  <g transform="translate(100, 450)">
+    <rect x="0" y="0" width="700" height="120" fill="#fff8e1" stroke="#f39c12" stroke-width="2" rx="8"/>
+    <text x="350" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#f39c12">
+      参数量对比 (以 Qwen2.5-0.5B 为例)
+    </text>
+    
+    <!-- 全量微调 -->
+    <g transform="translate(50, 50)">
+      <circle cx="30" cy="15" r="8" fill="#e74c3c"/>
+      <text x="50" y="19" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" fill="#333">
+        全量微调: 524,288,000 参数 × 4Bytes = 2.1GB
+      </text>
+    </g>
+    
+    <!-- LoRA -->
+    <g transform="translate(50, 85)">
+      <circle cx="30" cy="15" r="8" fill="#27ae60"/>
+      <text x="50" y="19" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" fill="#333">
+        LoRA 微调: (524M × 16 × 2) / 16 = 1,048,576 参数 × 4Bytes = 4MB
+      </text>
+    </g>
+    
+    <!-- 说明 -->
+    <text x="350" y="115" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#666">
+      说明: 只对 q_proj 和 v_proj 应用 LoRA，r=16, lora_alpha=32
+    </text>
+  </g>
+  
+  <!-- 技术流程 -->
+  <g transform="translate(50, 580)">
+    <text x="0" y="0" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+      训练流程: 1. 冻结原始模型 2. 添加 LoRA A/B 矩阵 3. 只训练 LoRA 参数 4. 保存 LoRA 权重
+    </text>
+  </g>
+</svg>

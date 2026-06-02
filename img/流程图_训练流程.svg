@@ -1,0 +1,325 @@
+<svg width="1000" height="700" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景 -->
+  <rect width="1000" height="700" fill="white" stroke="none"/>
+  
+  <!-- 标题 -->
+  <text x="500" y="30" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="24" font-weight="bold" text-anchor="middle" fill="#333">
+    知识蒸馏训练完整流程
+  </text>
+  <text x="500" y="55" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" text-anchor="middle" fill="#666">
+    从数据加载到 LoRA 适配器保存的完整步骤
+  </text>
+  
+  <!-- 步骤 1: 数据准备 -->
+  <g transform="translate(50, 100)">
+    <rect x="0" y="0" width="250" height="150" fill="#e3f2fd" stroke="#2196f3" stroke-width="2" rx="8"/>
+    <text x="125" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#2196f3">
+      步骤 1: 数据准备
+    </text>
+    
+    <!-- JSON 文件 -->
+    <rect x="30" y="50" width="60" height="70" fill="#2196f3" opacity="0.1" rx="4"/>
+    <text x="60" y="75" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="9" text-anchor="middle" fill="#2196f3">
+      deepseek_json
+    </text>
+    <text x="60" y="90" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="9" text-anchor="middle" fill="#2196f3">
+      .json
+    </text>
+    
+    <!-- 数据条目 -->
+    <g transform="translate(110, 40)">
+      <rect x="0" y="0" width="120" height="90" fill="white" stroke="#ddd" stroke-width="1" rx="4"/>
+      <text x="10" y="20" font-family="Consolas, monospace" font-size="9" fill="#333">
+        {"instruction":
+      </text>
+      <text x="10" y="35" font-family="Consolas, monospace" font-size="9" fill="#333">
+        "你如何利用BGE-M3模型进行混合检索？请说明向量检索与BM25结合的流程。",
+      </text>
+      <text x="10" y="50" font-family="Consolas, monospace" font-size="9" fill="#333">
+        "output": "混合检索流程：首先分别说明向量检索通过BGE-M3Embedding进行语义匹配，BM25基于关键词统计匹配；然后使用RRF公式score(doc) = Σ 1/(k+rank_i)（k=60）融合两个排名结果；最后将融合后的Top 50文档送入BGE-Reranker模型精排，输出Top 5结果。"}
+      </text>
+    </g>
+    
+    <!-- 加载箭头 -->
+    <path d="M230,75 L280,75" stroke="#2196f3" stroke-width="2" marker-end="url(#arrow1)"/>
+    <defs>
+      <marker id="arrow1" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#2196f3"/>
+      </marker>
+    </defs>
+    
+    <!-- Dataset 对象 -->
+    <rect x="300" y="40" width="100" height="70" fill="#2196f3" opacity="0.2" rx="4"/>
+    <text x="350" y="70" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="11" text-anchor="middle" fill="#2196f3">
+      Dataset
+    </text>
+    <text x="350" y="88" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="9" text-anchor="middle" fill="#2196f3">
+      203 条样本
+    </text>
+  </g>
+  
+  <!-- 步骤 2: Tokenizer 加载 -->
+  <g transform="translate(400, 100)">
+    <rect x="0" y="0" width="250" height="150" fill="#e8f5e9" stroke="#4caf50" stroke-width="2" rx="8"/>
+    <text x="125" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#4caf50">
+      步骤 2: Tokenizer
+    </text>
+    <text x="125" y="45" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="11" text-anchor="middle" fill="#666">
+      加载与配置
+    </text>
+    
+    <!-- 模型图标 -->
+    <circle cx="50" cy="80" r="35" fill="#4caf50" opacity="0.2"/>
+    <text x="50" y="75" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#4caf50">
+      Qwen2.5
+    </text>
+    <text x="50" y="90" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#4caf50">
+      -0.5B
+    </text>
+    
+    <!-- 配置参数 -->
+    <g transform="translate(110, 50)">
+      <text x="0" y="15" font-family="Consolas, monospace" font-size="9" fill="#333">
+        trust_remote_code=True
+      </text>
+      <text x="0" y="30" font-family="Consolas, monospace" font-size="9" fill="#333">
+        cache_dir="./models"
+      </text>
+      <text x="0" y="45" font-family="Consolas, monospace" font-size="9" fill="#333">
+        pad_token = eos_token
+      </text>
+    </g>
+    
+    <!-- 箭头 -->
+    <path d="M230,75 L280,75" stroke="#4caf50" stroke-width="2" marker-end="url(#arrow2)"/>
+    <defs>
+      <marker id="arrow2" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#4caf50"/>
+      </marker>
+    </defs>
+    
+    <!-- Tokenizer 对象 -->
+    <rect x="300" y="40" width="100" height="70" fill="#4caf50" opacity="0.2" rx="4"/>
+    <text x="350" y="70" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="11" text-anchor="middle" fill="#4caf50">
+      AutoTokenizer
+    </text>
+    <text x="350" y="88" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="9" text-anchor="middle" fill="#4caf50">
+      vocab_size=32000
+    </text>
+  </g>
+  
+  <!-- 步骤 3: 格式化 -->
+  <g transform="translate(750, 100)">
+    <rect x="0" y="0" width="200" height="150" fill="#fff3e0" stroke="#ff9800" stroke-width="2" rx="8"/>
+    <text x="100" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#ff9800">
+      步骤 3: 格式化
+    </text>
+    <text x="100" y="45" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="11" text-anchor="middle" fill="#666">
+      apply_chat_template
+    </text>
+    
+    <!-- 输入 -->
+    <rect x="20" y="60" width="50" height="40" fill="#ffeb3b" opacity="0.3" rx="4"/>
+    <text x="45" y="80" font-family="Consolas, monospace" font-size="8" text-anchor="middle" fill="#ff9800">
+      {"in..."}
+    </text>
+    
+    <!-- 处理流程 -->
+    <g transform="translate(90, 50)">
+      <circle cx="15" cy="15" r="10" fill="#ff9800" opacity="0.2"/>
+      <text x="15" y="19" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="9" text-anchor="middle" fill="#ff9800">
+        ✨
+      </text>
+    </g>
+    
+    <!-- 输出 -->
+    <rect x="120" y="60" width="60" height="40" fill="#ff9800" opacity="0.3" rx="4"/>
+    <text x="150" y="75" font-family="Consolas, monospace" font-size="8" text-anchor="middle" fill="#ff9800">
+      "system
+     user
+      问题...
+      assistant
+      答案...""
+    </text>
+  </g>
+  
+  <!-- 连接线 -->
+  <path d="M300,220 L300,280 L300,340 L300,400 L300,460 L300,520" stroke="#999" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
+  <polygon points="295,520 305,520 300,535" fill="#999"/>
+  
+  <!-- 步骤 4: LoRA 配置 -->
+  <g transform="translate(50, 350)">
+    <rect x="0" y="0" width="250" height="200" fill="#f3e5f5" stroke="#9c27b0" stroke-width="2" rx="8"/>
+    <text x="125" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#9c27b0">
+      步骤 4: LoRA 配置
+    </text>
+    
+    <!-- 配置参数 -->
+    <g transform="translate(20, 50)">
+      <text x="0" y="20" font-family="Consolas, monospace" font-size="10" fill="#333">
+        LoraConfig({
+      </text>
+      <text x="20" y="40" font-family="Consolas, monospace" font-size="10" fill="#333">
+        r=16,              // 低秩
+      </text>
+      <text x="20" y="55" font-family="Consolas, monospace" font-size="10" fill="#333">
+        lora_alpha=32,     // 缩放
+      </text>
+      <text x="20" y="70" font-family="Consolas, monospace" font-size="10" fill="#333">
+        lora_dropout=0.05, // Dropout
+      </text>
+      <text x="20" y="85" font-family="Consolas, monospace" font-size="10" fill="#333">
+        target_modules=[
+      </text>
+      <text x="40" y="100" font-family="Consolas, monospace" font-size="10" fill="#333">
+        "q_proj", "v_proj"
+      </text>
+      <text x="20" y="115" font-family="Consolas, monospace" font-size="10" fill="#333">
+        ]})
+      </text>
+    </g>
+    
+    <!-- 参数说明 -->
+    <g transform="translate(20, 150)">
+      <text x="0" y="15" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="9" fill="#666">
+        • r=16: 低秩分解阶数
+      </text>
+      <text x="0" y="30" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="9" fill="#666">
+        • alpha=32: 缩放因子
+      </text>
+      <text x="0" y="45" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="9" fill="#666">
+        • q_proj/v_proj: 应用模块
+      </text>
+    </g>
+  </g>
+  
+  <!-- 步骤 5: 训练器 -->
+  <g transform="translate(350, 350)">
+    <rect x="0" y="0" width="300" height="200" fill="#e0f7fa" stroke="#00bcd4" stroke-width="2" rx="8"/>
+    <text x="150" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#00bcd4">
+      步骤 5: SFTTrainer
+    </text>
+    
+    <!-- 配置参数 -->
+    <g transform="translate(20, 50)">
+      <text x="0" y="20" font-family="Consolas, monospace" font-size="10" fill="#333">
+        TrainingArguments({
+      </text>
+      <text x="20" y="40" font-family="Consolas, monospace" font-size="10" fill="#333">
+        per_device_train_batch_size=4,
+      </text>
+      <text x="20" y="55" font-family="Consolas, monospace" font-size="10" fill="#333">
+        gradient_accumulation_steps=8,
+      </text>
+      <text x="20" y="70" font-family="Consolas, monospace" font-size="10" fill="#333">
+        learning_rate=2e-4,
+      </text>
+      <text x="20" y="85" font-family="Consolas, monospace" font-size="10" fill="#333">
+        num_train_epochs=3,
+      </text>
+      <text x="20" y="100" font-family="Consolas, monospace" font-size="10" fill="#333">
+        bf16=True})
+      </text>
+    </g>
+  </g>
+  
+  <!-- 步骤 6: 训练 -->
+  <g transform="translate(700, 350)">
+    <rect x="0" y="0" width="250" height="200" fill="#fce4ec" stroke="#e91e63" stroke-width="2" rx="8"/>
+    <text x="125" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#e91e63">
+      步骤 6: 开始训练
+    </text>
+    
+    <!-- 训练循环 -->
+    <g transform="translate(50, 50)">
+      <circle cx="30" cy="30" r="25" fill="#e91e63" opacity="0.2"/>
+      <text x="30" y="34" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" text-anchor="middle" fill="#e91e63">
+        🔄
+      </text>
+      <text x="30" y="55" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" text-anchor="middle" fill="#e91e63">
+        Epoch 1/3
+      </text>
+      <text x="30" y="70" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#e91e63">
+        loss: 3.11
+      </text>
+    </g>
+    
+    <!-- 训练数据 -->
+    <rect x="100" y="100" width="80" height="40" fill="#e91e63" opacity="0.1" rx="4"/>
+    <text x="140" y="120" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#e91e63">
+      203 样本 × 3
+    </text>
+    <text x="140" y="135" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#e91e63">
+      epochs = 609
+    </text>
+  </g>
+  
+  <!-- 步骤 7: 保存 -->
+  <g transform="translate(50, 580)">
+    <rect x="0" y="0" width="250" height="100" fill="#dcedc8" stroke="#4caf50" stroke-width="2" rx="8"/>
+    <text x="125" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#4caf50">
+      步骤 7: 保存模型
+    </text>
+    
+    <!-- 保存目录 -->
+    <g transform="translate(50, 40)">
+      <rect x="0" y="0" width="150" height="40" fill="#4caf50" opacity="0.1" rx="4"/>
+      <text x="75" y="20" font-family="Consolas, monospace" font-size="10" text-anchor="middle" fill="#4caf50">
+        lora_sft_output/
+      </text>
+      <text x="75" y="35" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#4caf50">
+        adapter_model.safetensors
+      </text>
+    </g>
+    
+    <!-- 文件内容 -->
+    <g transform="translate(210, 40)">
+      <text x="0" y="15" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#4caf50">
+        ✓ adapter_config.json
+      </text>
+      <text x="0" y="30" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#4caf50">
+        ✓ adapter_model.safetensors
+      </text>
+    </g>
+  </g>
+  
+  <!-- 步骤 8: 推理测试 -->
+  <g transform="translate(350, 580)">
+    <rect x="0" y="0" width="300" height="100" fill="#ffe0b2" stroke="#ff9800" stroke-width="2" rx="8"/>
+    <text x="150" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#ff9800">
+      步骤 8: 推理测试
+    </text>
+    
+    <!-- 推理流程 -->
+    <g transform="translate(50, 40)">
+      <text x="0" y="15" font-family="Consolas, monospace" font-size="10" fill="#333">
+        1. 加载 base model
+      </text>
+      <text x="0" y="30" font-family="Consolas, monospace" font-size="10" fill="#333">
+        2. 加载 LoRA adapter
+      </text>
+      <text x="0" y="45" font-family="Consolas, monospace" font-size="10" fill="#333">
+        3. 生成回答
+      </text>
+    </g>
+    
+    <!-- 结果对比 -->
+    <g transform="translate(200, 60)">
+      <circle cx="10" cy="10" r="6" fill="#e74c3c"/>
+      <text x="25" y="14" font-family="Consolas, monospace" font-size="9" fill="#333">
+        原始模型
+      </text>
+      <circle cx="10" cy="28" r="6" fill="#27ae60"/>
+      <text x="25" y="32" font-family="Consolas, monospace" font-size="9" fill="#333">
+        蒸馏模型
+      </text>
+    </g>
+  </g>
+  
+  <!-- 总结 -->
+  <g transform="translate(50, 680)">
+    <text x="0" y="0" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+      流程总结: 数据准备 → Tokenizer → 格式化 → LoRA 配置 → Trainer → 训练 → 保存 → 推理测试
+    </text>
+  </g>
+</svg>

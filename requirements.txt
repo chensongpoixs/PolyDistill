@@ -1,0 +1,30 @@
+# ============================================================
+# AI Infra 知识蒸馏 — 依赖清单
+# ============================================================
+# Python 版本要求：≥ 3.10
+#
+# 安装：
+#   pip install -r requirements.txt
+#
+# 若需 GPU 训练，请先安装与 CUDA 版本匹配的 PyTorch：
+#   pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+# ============================================================
+
+# ---- 深度学习框架 ----
+torch>=2.3.0,<3.0.0
+
+# ---- Hugging Face 生态 ----
+transformers>=4.44.0,<5.0.0    # 模型加载、Tokenizer、TrainingArguments
+datasets>=2.20.0,<4.0.0        # 数据集加载与处理
+accelerate>=0.30.0,<2.0.0      # 分布式训练后端（本脚本单卡，但 TRL 依赖它）
+
+# ---- 微调框架 ----
+trl>=0.9.0,<1.0.0              # SFTTrainer、DataCollatorForCompletionOnlyLM
+peft>=0.12.0,<1.0.0            # LoRA 参数高效微调
+
+# ---- 配置解析 ----
+pyyaml>=6.0,<7.0.0             # YAML 配置文件解析
+
+# ---- 可选（用于训练监控） ----
+# wandb>=0.17.0                  # 可视化训练曲线（需在 TrainingArguments 中设置 report_to="wandb"）
+# tensorboard>=2.14.0            # 本地训练可视化（需在 TrainingArguments 中设置 report_to="tensorboard"）

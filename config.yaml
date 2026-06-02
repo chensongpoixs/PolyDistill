@@ -1,0 +1,162 @@
+# ============================================================
+# AI Infra 知识蒸馏 — 训练配置文件
+# ============================================================
+# 此文件覆盖 config.py 中 Config class 的默认值。
+# 未在此文件中声明的字段将使用 Config class 中的默认值。
+#
+# 用法：
+#   python inference.py                  （自动读取 ./config.yaml）
+#   python inference.py --config prod.yaml（指定其他配置文件）
+#
+# 字段命名：全部使用小写 + 下划线（snake_case），
+#           config.py 会自动映射到大写属性名（UPPER_CASE）。
+# ============================================================
+
+# ============================================================
+# 模型
+# ============================================================
+
+# Hugging Face 模型 ID 或本地路径。
+# 支持的模型系列：Qwen2.5、Llama3、Mistral 等因果语言模型。
+# 0.5B 参数规模适合 8-12GB 显存的单卡微调。
+model_id: "Qwen/Qwen2.5-0.5B-Instruct"
+
+# ============================================================
+# 数据
+# ============================================================
+
+# 训练数据集文件路径（相对于项目根目录）。
+# 格式：JSON 数组，每元素包含 instruction / input / output 字段。
+data_file: "./data/ai_infra_audio_video.json"
+
+# ============================================================
+# 路径
+# ============================================================
+
+# 模型下载缓存目录。
+# 首次运行时会从 Hugging Face 下载模型到此目录（约 1GB）。
+# 之后运行直接读取本地缓存，无需重复下载。
+cache_dir: "./models/qwen2.5-0.5b"
+
+# LoRA adapter 输出目录。
+# 训练完成后，adapter 权重（adapter_model.safetensors，约几 MB）
+# 及配置文件（adapter_config.json）将保存到此目录。
+# 同时保存各 epoch 的 checkpoint 子目录。
+output_dir: "./lora_sft_ai_infra_audio_video_output"
+
+# ============================================================
+# LoRA 参数（Low-Rank Adaptation）
+# ============================================================
+# LoRA 核心思想：不直接微调原始权重矩阵 W，而是训练低秩增量 ΔW = B·A。
+# 推理时合并 W' = W + ΔW，无额外延迟。可训练参数量从 ~500M 降至 ~2M。
+lora:
+
+  # 低秩矩阵的秩（rank）。
+  # r 越大，表达能力越强，但可训练参数越多、过拟合风险越高。
+  # 推荐范围：8（极简）~ 64（复杂任务）。小数据集（<1000 条）建议 8~16。
+  r: 16
+
+  # LoRA 缩放系数。
+  # 实际缩放因子 = alpha / r。alpha=32, r=16 时缩放因子为 2。
+  # 常用搭配：alpha = 2 * r（如 r=8→alpha=16, r=16→alpha=32）。
+  alpha: 32
+
+  # LoRA 层的 dropout 概率。
+  # 在低秩矩阵训练时随机丢弃部分神经元，防止小数据集上的过拟合。
+  # 推荐范围：0.01~0.1。数据集越小，dropout 应越高。
+  dropout: 0.05
+
+  # 要应用 LoRA 的目标模块名称列表。
+  # Qwen 系列常用模块：q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj。
+  # 当前仅微调 Q 和 V 投影矩阵，这是工业界经过验证的最稳定配置：
+  #   - 可训练参数最少（~2M），过拟合风险最低
+  #   - 指令跟随能力提升显著
+  #   - 如需更强表达能力，可追加 "k_proj", "o_proj"
+  target_modules: ["q_proj", "v_proj"]
+
+# ============================================================
+# 训练超参数
+# ============================================================
+training:
+
+  # 每张 GPU 的 micro batch size。
+  # 受显存限制：0.5B 模型 BF16 训练时，4 约占用 6-8GB 显存。
+  # 显存充足可增大到 8~16 以加快训练。
+  per_device_batch_size: 4
+
+  # 梯度累积步数。
+  # 等效 batch_size = per_device_batch_size × gradient_accumulation_steps
+  #                = 4 × 8 = 32
+  # 在显存受限时，通过累积小 batch 的梯度模拟大 batch 训练，维持训练稳定性。
+  # 增大此值 → 等效 batch 变大 → 梯度估计更准确，但训练速度不变。
+  gradient_accumulation_steps: 8
+
+  # 初始学习率。
+  # LoRA 微调推荐 lr 高于全量微调（全量通常 1e-5 ~ 5e-5）。
+  # 推荐范围：1e-4 ~ 5e-4。小数据集可用较低 lr 以避免 catastrophic forgetting。
+  learning_rate: 2.0e-4
+
+  # 学习率预热比例。
+  # 训练初期，lr 从 0 线性增加到 learning_rate，warmup_ratio × total_steps 步后完成。
+  # 预热有助于稳定训练初期的梯度方向，避免前几步梯度过大导致模型震荡。
+  # 推荐范围：0.01~0.1（即 1%~10% 的总步数）。
+  warmup_ratio: 0.03
+
+  # 学习率调度器类型。
+  # 可选值：linear, cosine, cosine_with_restarts, polynomial, constant, constant_with_warmup。
+  # cosine：先从 learning_rate 余弦衰减到接近 0，是最常用的调度器，训练末期收敛平稳。
+  lr_scheduler_type: "cosine"
+
+  # 训练总轮次（epoch）。
+  # 小数据集（~18 条）需较多 epoch 才能充分拟合。
+  # 若验证 loss 持续上升，说明过拟合，应降低 epoch 或增大 dropout。
+  # 注意：epoch 多 ≠ 效果好，需结合推理评估判断。
+  num_train_epochs: 300
+
+  # 日志打印间隔（步数）。
+  # 每隔 logging_steps 步打印一次 training loss、lr 等指标。
+  # 过小 → 日志刷屏；过大 → 无法及时观察训练状态。
+  logging_steps: 10
+
+  # checkpoint 保存策略。
+  # 可选值：
+  #   "no"        — 不保存 checkpoint
+  #   "epoch"     — 每个 epoch 结束时保存（推荐，配合小数据集）
+  #   "steps"     — 每隔 save_steps 步保存（需同时设置 save_steps）
+  #   "best"      — 仅在指标改善时保存（需同时设置 metric_for_best_model）
+  save_strategy: "epoch"
+
+# ============================================================
+# 对话模板
+# ============================================================
+
+# assistant 回复的起始标记。
+# DataCollatorForCompletionOnlyLM 通过查找此字符串定位 assistant 回复的位置，
+# 将之前的 token（system + user 部分）的 label 设为 -100，
+# 从而仅对 assistant 回复计算 loss，不学习提问部分。
+# Qwen2.5 的 assistant 标记为 "<|im_start|>assistant\n"。
+# 其他模型需相应修改：Llama 为 "assistant\n"，ChatGLM 为 "<|assistant|>"。
+response_template: "<|im_start|>assistant\n"
+
+# 系统提示词。
+# 在每条对话开头插入，定义模型的角色和行为风格。
+# 训练和推理时需保持一致。
+system_prompt: "You are a helpful assistant."
+
+# ============================================================
+# 设备
+# ============================================================
+
+# 使用的 GPU 编号。
+# "0" 表示第一张 GPU。使用 "0,1" 选择多张（需同步修改训练脚本以支持 DDP）。
+# 当前脚本为单卡场景，多卡需额外配置 accelerate 或 torchrun。
+cuda_visible_devices: "0"
+
+# ============================================================
+# 镜像加速
+# ============================================================
+
+# Hugging Face 服务端点。
+# 国内环境使用 https://hf-mirror.com 加速模型和数据集下载。
+# 海外环境可改为 https://huggingface.co（官方默认）。
+hf_endpoint: "https://hf-mirror.com"

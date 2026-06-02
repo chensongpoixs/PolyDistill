@@ -1,0 +1,140 @@
+<svg width="1000" height="450" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景 -->
+  <rect width="1000" height="450" fill="white" stroke="none"/>
+  
+  <!-- 标题 -->
+  <text x="500" y="30" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="24" font-weight="bold" text-anchor="middle" fill="#333">
+    Response Masking 原理
+  </text>
+  <text x="500" y="55" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" text-anchor="middle" fill="#666">
+    只学习 Assistant 回答部分，忽略 User 提问
+  </text>
+  
+  <!-- 输入文本 -->
+  <g transform="translate(50, 100)">
+    <text x="0" y="0" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" font-weight="bold" fill="#333">
+      原始文本 (经过 chat template 格式化)
+    </text>
+    <rect x="0" y="20" width="900" height="110" fill="#e3f2fd" stroke="#2196f3" stroke-width="1" rx="4"/>
+    <text x="10" y="45" font-family="Consolas, monospace" font-size="10" fill="#333">
+      &lt;|im_start|&gt;system
+    </text>
+    <text x="100" y="45" font-family="Consolas, monospace" font-size="10" fill="#666">
+      You are a helpful assistant.
+    </text>
+    <text x="280" y="45" font-family="Consolas, monospace" font-size="10" fill="#333">
+      &lt;|im_end|&gt;&lt;|im_start|&gt;user
+    </text>
+    <text x="400" y="45" font-family="Consolas, monospace" font-size="10" fill="#666">
+      你如何利用BGE-M3模型进行混合检索？请说明向量检索与BM25结合的流程。
+    </text>
+    <text x="780" y="45" font-family="Consolas, monospace" font-size="10" fill="#333">
+      &lt;|im_end|&gt;&lt;|im_start|&gt;assistant
+    </text>
+    <text x="10" y="65" font-family="Consolas, monospace" font-size="10" fill="#27ae60">
+      【面试官目的】了解信息检索融合技术，评估RAG系统的检索优化能力。
+    </text>
+    <text x="10" y="80" font-family="Consolas, monospace" font-size="10" fill="#27ae60">
+      【回答思路】先分别说明两种检索方式的原理，然后介绍加权融合或倒数排名融合（RRF）方法，再说明重排序的作用。
+    </text>
+    <text x="10" y="95" font-family="Consolas, monospace" font-size="10" fill="#27ae60">
+      【思考过程】向量检索通过语义相似度匹配，BM25基于关键词匹配。两者互补。分别从向量索引和倒排索引取回top K候选，然后使用RRF公式合并两个排名，形成统一结果集，最后经过Reranker模型精排，输出最终文档列表。
+    </text>
+    <text x="10" y="110" font-family="Consolas, monospace" font-size="10" fill="#27ae60">
+      【最终答案】用户查询经过术语扩展后，同时发送至FAISS向量库（使用BGE-M3 Embedding）和Elasticsearch的BM25索引。向量检索返回Top 100候选，BM25返回Top 100，使用RRF公式score(doc) = Σ 1/(k+rank_i)（k=60）融合，排序后取Top 50。再将这50个文档与查询拼接送入BGE-Reranker模型进行精排，最终返回Top 5。此混合检索较单纯向量检索召回率提升15%，准确率提升10%。
+    </text>
+    <text x="10" y="125" font-family="Consolas, monospace" font-size="10" fill="#27ae60">
+      &lt;|im_end|&gt;&lt;|im_start|&gt;user
+    </text>
+  </g>
+  
+  <!-- Tokenization -->
+  <g transform="translate(50, 240)">
+    <text x="0" y="0" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" font-weight="bold" fill="#333">
+      Tokenization (分词)
+    </text>
+    
+    <!-- input_ids -->
+    <g transform="translate(0, 30)">
+      <text x="0" y="15" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+        input_ids:
+      </text>
+      <text x="80" y="15" font-family="Consolas, monospace" font-size="10" fill="#333">
+        [1, 15043, 15043, 15043, 15043, 15043, 15043, 2, 88223, 2267, ...]
+      </text>
+    </g>
+    
+    <!-- labels -->
+    <g transform="translate(0, 60)">
+      <text x="0" y="15" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+        labels:
+      </text>
+      <text x="80" y="15" font-family="Consolas, monospace" font-size="10" fill="#e74c3c">
+        [-100, -100, -100, -100, -100, -100, -100, -100, -100, ...]
+      </text>
+    </g>
+  </g>
+  
+  <!-- Masking Explanation -->
+  <g transform="translate(50, 340)">
+    <rect x="0" y="0" width="400" height="110" fill="#fff3e0" stroke="#ff9800" stroke-width="2" rx="8"/>
+    <text x="200" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#ff9800">
+      Response Masking 说明
+    </text>
+    
+    <text x="15" y="50" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+      1. prompt 部分 (system + user)
+    </text>
+    <text x="15" y="68" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#e74c3c">
+       → labels 设为 -100 (PyTorch 忽略这些位置的损失)
+    </text>
+    
+    <text x="15" y="90" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+      2. completion 部分 (assistant)
+    </text>
+    <text x="15" y="108" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#27ae60">
+       → labels 保留原始 token ID (计算损失)
+    </text>
+  </g>
+  
+  <!-- Loss Calculation -->
+  <g transform="translate(480, 340)">
+    <rect x="0" y="0" width="470" height="110" fill="#e8f5e9" stroke="#4caf50" stroke-width="2" rx="8"/>
+    <text x="235" y="25" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#4caf50">
+      损失计算
+    </text>
+    
+    <g transform="translate(20, 50)">
+      <text x="0" y="15" font-family="Consolas, monospace" font-size="11" fill="#333">
+        loss = CrossEntropy(logits[7:], labels[7:])
+      </text>
+      <text x="0" y="35" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+        只计算 assistant 部分的交叉熵损失
+      </text>
+      <text x="0" y="55" font-family="Consolas, monospace" font-size="11" fill="#333">
+        total_loss = loss(system) + loss(user) + loss(assistant)
+      </text>
+      <text x="0" y="75" font-family="Consolas, monospace" font-size="11" fill="#333">
+               = 0         + 0         + 2.34
+      </text>
+    </g>
+  </g>
+  
+  <!-- Why This Matters -->
+  <g transform="translate(50, 460)">
+    <rect x="0" y="0" width="900" height="80" fill="#f3e5f5" stroke="#9c27b0" stroke-width="2" rx="8"/>
+    <text x="450" y="20" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#9c27b0">
+      为什么需要 Response Masking？
+    </text>
+    
+    <text x="15" y="45" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+      • 避免模型学习 "重复问题"：如果计算 prompt 的损失，模型可能会学会重复用户的提问
+    </text>
+    <text x="15" y="62" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+      • 专注于回答生成：只训练模型生成正确的回答，而不是处理输入
+    </text>
+    <text x="15" y="79" font-family="Microsoft YaHei, SimHei, sans-serif" font-size="10" fill="#666">
+      • 模拟真实推理场景：推理时只有 prompt，没有答案，训练时也应如此
+    </text>
+  </g>
+</svg>

@@ -86,6 +86,13 @@ class YOLOStyleProgressCallback(TrainerCallback):
     # ---- TrainerCallback 钩子 ----
 
     def on_train_begin(self, args, state, control, **kwargs):
+        # 彻底静默 transformers / trl / datasets 的默认日志
+        import transformers.utils.logging as hf_logging
+        hf_logging.set_verbosity_error()
+        import logging as _logging
+        _logging.getLogger("trl").setLevel(_logging.ERROR)
+        _logging.getLogger("datasets").setLevel(_logging.ERROR)
+        _logging.getLogger("peft").setLevel(_logging.ERROR)
         self._print_header()
 
     def on_epoch_begin(self, args, state, control, **kwargs):

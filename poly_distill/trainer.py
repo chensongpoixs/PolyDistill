@@ -39,7 +39,8 @@ class YOLOStyleProgressCallback(TrainerCallback):
          2/30    4.2G      0.9876      0.9521   1.7e-04     1755     43s
         ...
 
-    训练结束时输出最优指标表格。
+    行在 on_log 中即时打印（epoch 变化时），on_epoch_end 作为兜底。
+    训练结束时输出最优指标。
     """
 
     def __init__(self, total_epochs: int, train_samples: int, val_samples: int = 0):
@@ -53,6 +54,8 @@ class YOLOStyleProgressCallback(TrainerCallback):
         self._lr = None
         self._best_val_loss = float("inf")
         self._best_epoch = 0
+        self._last_printed_epoch = -1  # 避免同一 epoch 重复打印
+        self._header_printed = False
 
     def _print_header(self):
         header = (
@@ -62,6 +65,7 @@ class YOLOStyleProgressCallback(TrainerCallback):
         )
         print(header, flush=True)
         print("-" * 78, flush=True)
+        self._header_printed = True
 
     def _get_gpu_mem(self) -> str:
         if torch.cuda.is_available():
@@ -83,30 +87,42 @@ class YOLOStyleProgressCallback(TrainerCallback):
             f"{lr:>10s}  {samples:>8d}  {elapsed:>8s}"
         )
 
+    def _print_line(self):
+        """打印当前 epoch 行，防重复。"""
+        if self._epoch != self._last_printed_epoch:
+            print(self._format_epoch_line(), flush=True)
+            self._last_printed_epoch = self._epoch
+
     # ---- TrainerCallback 钩子 ----
 
     def on_train_begin(self, args, state, control, **kwargs):
-        # 彻底静默 transformers / trl / datasets 的默认日志
-        import transformers.utils.logging as hf_logging
-        hf_logging.set_verbosity_error()
-        import logging as _logging
-        _logging.getLogger("trl").setLevel(_logging.ERROR)
-        _logging.getLogger("datasets").setLevel(_logging.ERROR)
-        _logging.getLogger("peft").setLevel(_logging.ERROR)
         self._print_header()
 
     def on_epoch_begin(self, args, state, control, **kwargs):
         self._epoch_start_time = time.time()
 
     def on_log(self, args, state, control, logs=None, **kwargs):
+        """每次 log step 触发：捕获 loss/lr，epoch 变化时即时打印。
+
+        HF Trainer 中 state.epoch 在训练中为 0.0~0.99 (第一个 epoch)、
+        1.0~1.99 (第二个 epoch) 等。on_epoch_end 时 state.epoch 已更新为
+        刚完成的 epoch 编号 (如 1.0 表示第一个 epoch 完成)。
+
+        因此 on_log 使用 int(state.epoch) + 1 (1-indexed)，
+        on_epoch_end 使用 int(state.epoch) (state.epoch 已是完成后的编号)。
+        """
         if logs is None:
             return
         if "loss" in logs:
             self._train_loss = logs["loss"]
         if "learning_rate" in logs:
             self._lr = logs["learning_rate"]
-        if "epoch" in logs:
-            self._epoch = int(round(logs["epoch"]))
+        # 1-indexed：训练中 state.epoch=0.xx → 显示 "1/N"
+        if state.epoch is not None:
+            current = int(state.epoch) + 1
+            if current != self._epoch:
+                self._epoch = current
+                self._print_line()
 
     def on_evaluate(self, args, state, control, metrics=None, **kwargs):
         if metrics is None:
@@ -118,14 +134,17 @@ class YOLOStyleProgressCallback(TrainerCallback):
                 self._best_epoch = self._epoch
 
     def on_epoch_end(self, args, state, control, **kwargs):
-        self._epoch = int(state.epoch) if state.epoch else self._epoch
+        """兜底：如果 on_log 未触发 epoch 变化，在此处打印。"""
+        epoch_val = state.epoch  # 可能是 float 如 0.0；None 时回退
+        if epoch_val is not None:
+            self._epoch = int(epoch_val)  # int(0.0) = 0, int(1.0) = 1, ...
         if state.log_history:
             last = state.log_history[-1]
             if "loss" in last:
                 self._train_loss = last["loss"]
             if "learning_rate" in last:
                 self._lr = last["learning_rate"]
-        print(self._format_epoch_line(), flush=True)
+        self._print_line()  # 防重复自动处理
 
     def on_train_end(self, args, state, control, **kwargs):
         print("-" * 78, flush=True)
@@ -229,7 +248,6 @@ def build_training_args(config: Config) -> TrainingArguments:
         logging_steps=config.LOGGING_STEPS,
         bf16=torch.cuda.is_available(),
         report_to="none",
-        log_level="warning",  # 抑制默认详细日志，使用 YOLOv5 风格输出
         ddp_find_unused_parameters=False,
     )
 
@@ -329,6 +347,19 @@ def train(config: Config) -> tuple:
         len(eval_dataset) if eval_dataset else 0,
     )
 
+    # ---- 强制静默：必须在 SFTTrainer 构造前执行 ----
+    # SFTTrainer.__init__ 会读取 TrainingArguments.log_level 覆盖 verbosity，
+    # 所以 log_level 已从 build_training_args 中移除。
+    # 此处提前禁用所有 HF 日志，确保 YOLOv5 风格输出不被污染。
+    import transformers.utils.logging as hf_logging
+    hf_logging.set_verbosity_error()
+    hf_logging.disable_default_handler()
+    import logging as _logging
+    _logging.getLogger("trl").setLevel(_logging.ERROR)
+    _logging.getLogger("datasets").setLevel(_logging.ERROR)
+    _logging.getLogger("peft").setLevel(_logging.ERROR)
+    _logging.getLogger("sentencepiece").setLevel(_logging.ERROR)
+
     # ---- 实例化 Trainer ----
     trainer_kwargs = dict(
         model=model,
@@ -341,6 +372,14 @@ def train(config: Config) -> tuple:
     )
 
     trainer = SFTTrainer(**trainer_kwargs)
+
+    # ---- 移除 HF 默认 PrinterCallback，仅保留 YOLO + tqdm 进度条 ----
+    # PrinterCallback → {'loss': ...} 字典泄漏（print() 直接输出，非 logging 模块）
+    from transformers.trainer_callback import PrinterCallback
+    trainer.callback_handler.callbacks = [
+        cb for cb in trainer.callback_handler.callbacks
+        if not isinstance(cb, PrinterCallback)
+    ]
 
     # ---- 6. 开始训练 ----
     logger.info("Start SFT training...")

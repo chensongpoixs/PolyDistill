@@ -1,250 +1,441 @@
 # ============================================================
-# AI Infra 知识蒸馏 — 训练配置文件
+# PolyDistill — 工业级多教师知识蒸馏训练配置
 # ============================================================
-# 此文件覆盖 config.py 中 Config class 的默认值。
-# 未在此文件中声明的字段将使用 Config class 中的默认值。
-#
 # 用法：
 #   python scripts/train.py                  （自动读取 ./config.yaml）
 #   python scripts/train.py --config prod.yaml（指定其他配置文件）
 #
-# 字段命名：全部使用小写 + 下划线（snake_case），
-#           config.py 会自动映射到大写属性名（UPPER_CASE）。
+# 字段命名全部使用小写 + 下划线（snake_case），
+# config.py 会自动映射到大写属性名（UPPER_CASE）。
 # ============================================================
 
 # ============================================================
-# 模型
+# 1. 模型
 # ============================================================
-
-# Hugging Face 模型 ID 或本地路径。
-# 支持的模型系列：Qwen2.5、Llama3、Mistral 等因果语言模型。
-# 0.5B 参数规模适合 8-12GB 显存的单卡微调。
+# 学生模型：Hugging Face 模型 ID 或本地路径。
+# 支持 Qwen2.5、Llama3、Mistral 等因果语言模型家族。
+# 0.5B 规模适合 8–12GB 显存的单卡微调。
 model_id: "Qwen/Qwen2.5-0.5B-Instruct"
 
 # ============================================================
-# 数据
+# 2. 数据
 # ============================================================
-
-# 训练数据目录（相对于项目根目录）。
+# 蒸馏数据目录（相对于项目根目录）。
 # 仅支持 Parquet 格式（reasoning-distill schema）。
 # JSON 数据需先转换: python poly_distill/json_to_parquet.py
+#
 # Parquet 列：
 #   messages  : list<{role, content}>  — 对话消息（通常仅 user 角色）
-#   thinking  : str                    — 推理/思考过程
+#   thinking  : str                    — 推理/思考过程（可选，用于 CoT 蒸馏）
 #   response  : str                    — 最终回答
 #   system    : str                    — 系统提示词（可选，fallback 到下方 system_prompt）
+#
 # 训练时 thinking + response 自动拼接为 assistant content，整段计算 loss。
 data_dir: "./data/ai_infra_audio_video"
 
 # ============================================================
-# 路径
+# 3. 路径
 # ============================================================
-
 # 模型下载缓存目录。
-# 首次运行时会从 Hugging Face 下载模型到此目录（约 1GB）。
-# 之后运行直接读取本地缓存，无需重复下载。
+# 首次运行从 Hugging Face 下载到此目录（约 1GB），之后直接读缓存。
 cache_dir: "./models/qwen2.5-0.5b"
 
 # LoRA adapter 输出目录。
-# 训练完成后，adapter 权重（adapter_model.safetensors，约几 MB）
-# 及配置文件（adapter_config.json）将保存到此目录。
-# 同时保存各 epoch 的 checkpoint 子目录。
+# 训练完成后在此保存 adapter 权重（约几 MB）和配置文件。
 output_dir: "./lora_sft_ai_infra_audio_video_output"
 
 # ============================================================
-# LoRA 参数（Low-Rank Adaptation）
+# 4. 知识蒸馏参数（工业级）
 # ============================================================
-# LoRA 核心思想：不直接微调原始权重矩阵 W，而是训练低秩增量 ΔW = B·A。
-# 推理时合并 W' = W + ΔW，无额外延迟。可训练参数量从 ~500M 降至 ~2M。
+# 蒸馏是将教师模型的知识迁移到学生模型的核心机制。
+# 当前实现：黑盒指令蒸馏（Black-box Instruction Distillation）
+#   — 从教师 API 获取高质量回答作为训练目标
+#   — 学生通过 SFT 学习教师的回答风格和知识
+#
+# 后续扩展：
+#   — Logit 层蒸馏：对齐教师-学生的输出概率分布
+#   — 特征层蒸馏：对齐中间层隐藏状态
+distillation:
+
+  # ---- 教师模型配置 ----
+  # 教师池：从多个商业 API 获取回答，融合后作为训练信号。
+  # 当前采用单教师模式（数据预先由教师生成并存入 Parquet）。
+  # 多教师在线蒸馏时，以下参数控制教师调用行为。
+  teachers:
+    # 教师列表（模型标识符，与 API 适配器对应）
+    models: ["GPT", "Claude", "Gemini"]
+
+    # 教师权重：融合多教师回答时的权重分配。
+    # 权重越高，该教师的回答在最终训练信号中影响越大。
+    # 总和无需为 1（内部自动归一化）。
+    weights: [1.0, 1.0, 1.0]
+
+    # 每个问题的教师采样策略：
+    #   "all"     — 所有教师均生成回答，融合后训练（质量最高，成本最高）
+    #   "random"  — 随机选一个教师（成本低，引入多样性）
+    #   "best"    — 所有教师生成后选最优（需 scoring 函数）
+    #   "weighted" — 按 weights 概率采样
+    sampling: "all"
+
+    # 教师 API 调用配置
+    max_retries: 3               # 单次调用最大重试次数
+    request_timeout: 60          # 单次请求超时（秒）
+    rate_limit_rpm: 50           # 每分钟最大请求数（各教师独立计算）
+    max_tokens: 2048             # 教师回答最大 token 数
+    temperature: 0.7             # 教师生成温度（>0 引入多样性，=0 确定性最高）
+
+  # ---- 蒸馏温度 ----
+  # 温度软化教师输出概率分布。
+  # T > 1：软化分布，暴露更多类别间关系（"暗知识"），
+  #         学生能学到教师对错误选项的相对偏好。
+  # T = 1：不软化，直接拟合 one-hot 目标。
+  #
+  # 推荐：
+  #   小数据集（<500 条）：T=2~3（软化有助于泛化）
+  #   大数据集（>2000 条）：T=3~5（数据足够，软化可学到更丰富知识）
+  temperature: 2.0
+
+  # ---- 蒸馏损失权重 ----
+  # 多任务学习中的损失权重分配：
+  #   sft_weight:    标准 SFT 交叉熵损失（拟合教师回答文本）
+  #   distill_weight: 蒸馏损失（拟合教师输出概率分布，需要 logits 访问权限）
+  #
+  # 当前黑盒模式下仅使用 SFT loss（distill_weight=0）。
+  # 灰盒/白盒模式下增加 distill_weight 可进一步提升效果。
+  loss:
+    sft_weight: 1.0
+    distill_weight: 0.0
+
+  # ---- 回答质量过滤 ----
+  # 自动过滤低质量的教师回答，避免噪声污染训练数据。
+  quality_filter:
+    enabled: true
+    min_response_length: 50      # 最小回答长度（字符），过短视为无效
+    max_response_length: 4096    # 最大回答长度，过长截断
+    skip_empty: true             # 跳过空回答
+    skip_duplicates: true        # 跳过完全相同的回答（去重）
+
+  # ---- 数据增强 ----
+  # 小数据集场景下的数据扩充策略。
+  augmentation:
+    enabled: false               # 是否启用（小数据集推荐开启）
+    paraphrase_count: 2          # 每条数据生成几个改写版本
+    back_translation: false      # 回译增强（中文→英文→中文）
+    shuffle_options: false       # 选择题选项打乱
+
+# ============================================================
+# 5. LoRA 参数（Low-Rank Adaptation）
+# ============================================================
+# LoRA 核心思想：不微调原始权重矩阵 W，而是训练低秩增量 ΔW = B·A。
+# 推理时合并 W' = W + ΔW，无额外推理延迟。
+# 可训练参数量从 ~500M 降至 ~2M（r=8 时）。
 lora:
 
   # 低秩矩阵的秩（rank）。
-  # r 越大，表达能力越强，但可训练参数越多、过拟合风险越高。
-  # 推荐范围：8（极简）~ 64（复杂任务）。小数据集（<1000 条）建议 8~16。
-  # 当前 432 条数据，r=8 可有效防止过拟合。
+  # r 越大 → 表达能力越强，可训练参数越多（参数量 ∝ r）。
+  # r 越小 → 正则化效果越强，过拟合风险越低。
+  #
+  # 推荐（按数据量）：
+  #   100 条  → r=4  （极简，强正则化）
+  #   500 条  → r=8  （轻量，平衡）
+  #   1000 条 → r=16 （中等，推荐起步值）
+  #   2000 条 → r=32 （增强表达）
+  #   5000 条 → r=64 （接近全量微调效果）
   r: 8
 
   # LoRA 缩放系数。
-  # 实际缩放因子 = alpha / r。alpha=16, r=8 时缩放因子为 2。
-  # 常用搭配：alpha = 2 * r。
+  # 实际缩放因子 = alpha / r。通常 alpha = 2 × r。
+  # alpha 越大 → LoRA 输出对原始表示的扰动越大。
   alpha: 16
 
   # LoRA 层的 dropout 概率。
-  # 在低秩矩阵训练时随机丢弃部分神经元，防止小数据集上的过拟合。
-  # 推荐范围：0.05~0.15。数据量越少、epoch 越多，dropout 应越高。
+  # 在低秩矩阵训练时随机丢弃神经元，防止过拟合。
+  #
+  # 推荐（按数据量）：
+  #   100 条  → 0.15（强正则）
+  #   500 条  → 0.10（中等正则）
+  #   1000+ 条→ 0.05（轻度正则）
   dropout: 0.1
 
-  # 要应用 LoRA 的目标模块名称列表。
-  # Qwen 系列常用模块：q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj。
-  # 当前仅微调 Q 和 V 投影矩阵，这是工业界经过验证的最稳定配置：
-  #   - 可训练参数最少（~2M），过拟合风险最低
-  #   - 指令跟随能力提升显著
-  #   - 如需更强表达能力，可追加 "k_proj", "o_proj"
+  # 要应用 LoRA 的目标模块列表。
+  # Qwen 系列可选：q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj
+  #
+  # 当前仅微调 Q 和 V 投影矩阵（工业界最稳定配置）：
+  #   — 可训练参数最少（r=8 时约 2M），过拟合风险最低
+  #   — 指令跟随能力提升显著
+  #   — 需更强表达力时可追加 "k_proj", "o_proj"
   target_modules: ["q_proj", "v_proj"]
 
 # ============================================================
-# 训练超参数
+# 6. 训练超参数
 # ============================================================
 training:
 
+  # ---- 批次配置 ----
   # 每张 GPU 的 micro batch size。
-  # 受显存限制：0.5B 模型 BF16 训练时，4 约占用 6-8GB 显存。
-  # 显存充足可增大到 8~16 以加快训练。
+  # 0.5B 模型 BF16 训练时，4 约占用 6–8GB 显存。
   per_device_batch_size: 4
 
   # 梯度累积步数。
-  # 等效 batch_size = per_device_batch_size × gradient_accumulation_steps
-  #                = 4 × 8 = 32
-  # 在显存受限时，通过累积小 batch 的梯度模拟大 batch 训练，维持训练稳定性。
-  # 增大此值 → 等效 batch 变大 → 梯度估计更准确，但训练速度不变。
+  # 等效 batch = per_device_batch_size × gradient_accumulation_steps
+  #            = 4 × 8 = 32
+  #
+  # 小数据集用小 batch（梯度噪声有助于泛化），大数据集用大 batch（梯度更准）。
   gradient_accumulation_steps: 8
 
-  # 初始学习率。
+  # ---- 学习率 ----
   # LoRA 微调推荐 lr 高于全量微调（全量通常 1e-5 ~ 5e-5）。
-  # 推荐范围：1e-4 ~ 5e-4。小数据集可用较低 lr 以避免 catastrophic forgetting。
+  #
+  # 推荐（按数据量）：
+  #   100 条  → 5e-5  （小心更新，防止 catastrophic forgetting）
+  #   500 条  → 1e-4
+  #   1000 条 → 2e-4  （推荐起步值）
+  #   2000+ 条→ 3e-4
+  #   5000+ 条→ 5e-4
   learning_rate: 2.0e-4
 
   # 学习率预热比例。
-  # 训练初期，lr 从 0 线性增加到 learning_rate，warmup_ratio × total_steps 步后完成。
-  # 预热有助于稳定训练初期的梯度方向，避免前几步梯度过大导致模型震荡。
-  # 推荐范围：0.01~0.1（即 1%~10% 的总步数）。
+  # 训练初期 lr 从 0 线性增加到 learning_rate，预热 = warmup_ratio × total_steps 步。
+  # 小数据集预热应更长（训练步数少，需更多步到达目标 lr）。
+  #
+  # 推荐：小数据 0.05–0.1，大数据 0.02–0.03
   warmup_ratio: 0.03
 
-  # 学习率调度器类型。
-  # 可选值：linear, cosine, cosine_with_restarts, polynomial, constant, constant_with_warmup。
-  # cosine：先从 learning_rate 余弦衰减到接近 0，是最常用的调度器，训练末期收敛平稳。
+  # 学习率调度器。
+  # cosine:      从 learning_rate 余弦衰减到接近 0（最常用，收敛平稳）
+  # linear:      线性衰减
+  # constant:    恒定学习率（不推荐蒸馏场景）
+  # cosine_with_restarts: 带重启的余弦（大数据集可能受益）
   lr_scheduler_type: "cosine"
 
-  # 训练总轮次（epoch）。
-  # 432 条数据 + LoRA r=8 场景，100 epochs 通常足够收敛。
-  # 配合 early_stopping_patience 自动早停，避免无效训练。
-  # 若数据量增至 1000+，可降低到 20~50。
+  # 训练总轮次。
+  #
+  # 推荐（按数据量）：
+  #   100 条  → 200（数据少，需多轮曝光）
+  #   500 条  → 100
+  #   1000 条 → 50
+  #   2000 条 → 30
+  #   5000 条 → 15
+  #   10000 条→ 10
+  #
+  # 配合 early_stopping_patience 自动早停，实际 epoch 通常远小于设定值。
   num_train_epochs: 100
 
-  # ---- 正则化（防过拟合） ----
-
-  # 权重衰减（L2 正则化）。
-  # 对 LoRA 权重施加 L2 惩罚，限制权重幅度，提升泛化能力。
-  # 0 表示不衰减。推荐 0.01~0.05，数据量越小值越大。
+# ============================================================
+# 7. 正则化
+# ============================================================
+  # ---- 权重衰减（L2 正则化） ----
+  # 对 LoRA 权重施加 L2 惩罚，限制权重幅度。
+  # 小数据集用大值（强正则化），大数据集用小值。
+  #
+  # 推荐：100 条→0.05，500 条→0.02，1000+ 条→0.01
   weight_decay: 0.01
 
-  # 梯度裁剪阈值。
-  # 限制梯度的最大 L2 范数，防止单步更新过大导致训练震荡。
-  # 0 表示不裁剪。LoRA 训练推荐 1.0。
+  # ---- 梯度裁剪 ----
+  # 限制梯度的最大 L2 范数，防止单步更新过大。
+  # 蒸馏训练推荐 1.0（LoRA 参数量小，梯度通常不会爆）。
   max_grad_norm: 1.0
 
-  # NEFTune 噪声强度。
-  # 在 embedding 层注入均匀随机噪声，显著提升指令微调泛化效果。
-  # 推荐 5~15。0 表示禁用。
-  # 仅 TRL ≥ 0.12 支持。
+  # ---- NEFTune 噪声注入 ----
+  # 在 embedding 层注入均匀随机噪声 U(-α/√d, α/√d)。
+  # 显著提升小数据集指令微调泛化性（论文：NEFTune, NeurIPS 2023）。
+  #
+  # 推荐：小数据（<500 条）→ 8–10，中数据 → 5，大数据（>5000 条）→ 0
+  # 需要 transformers ≥ 4.38
   neftune_noise_alpha: 5
 
+# ============================================================
+# 8. 早停与检查点
+# ============================================================
   # ---- 早停 ----
-
-  # 早停耐心值（epoch 数）。
-  # 若 eval_loss 在 patience 个 epoch 内未改善，自动停止训练。
-  # 0 表示禁用早停。配合 load_best_model_at_end 自动加载最优权重。
+  # eval_loss 在 patience 个 epoch 内改善 < threshold 则停止。
+  # 小数据集 patience 应更大（波动大，需要更多 epoch 确认收敛）。
   early_stopping_patience: 10
-
-  # 早停阈值。
-  # eval_loss 需改善超过此阈值才算"有改善"，避免因浮点抖动误判。
   early_stopping_threshold: 0.001
 
-  # ---- 评估分割 ----
-
-  # 验证集比例。
-  # 从全量数据中划分此比例作为验证集（不参与训练），用于早停和过拟合检测。
-  # 推荐 0.1~0.15。432 条数据取 0.1 = 43 条验证集。
+  # ---- 验证集分割 ----
+  # 从全量数据中划分此比例作为验证集（用于早停和过拟合检测）。
+  # 数据量 < 500 时建议 0.15，500–2000 用 0.1，>2000 用 0.05
   eval_split_ratio: 0.1
 
-  # 日志打印间隔（步数）。
-  # 每隔 logging_steps 步打印一次 training loss、lr、eval_loss 等指标。
-  # 过小 → 日志刷屏；过大 → 无法及时观察训练状态。
+  # ---- 日志与保存 ----
+  # 控制台日志打印间隔（步数）。
+  # 小数据集可设小值（如 5）实时观察，大数据集设大值（如 50）减少刷屏。
   logging_steps: 10
 
-  # checkpoint 保存策略。
-  # 可选值：
-  #   "no"        — 不保存 checkpoint
-  #   "epoch"     — 每个 epoch 结束时保存
-  #   "steps"     — 每隔 save_steps 步保存（需同时设置 save_steps）
-  #   "best"      — 仅在 eval_loss 改善时保存（推荐，配合 early stopping）
+  # checkpoint 保存策略：
+  #   "best"  — 仅 eval_loss 改善时保存（推荐）
+  #   "epoch" — 每个 epoch 保存（磁盘占用大）
+  #   "no"    — 不保存中间 checkpoint
   save_strategy: "best"
 
-  # 保存的 checkpoint 总数上限。
-  # 仅保留最近的 N 个 best checkpoint，旧的自动删除，节省磁盘。
+  # 最多保留 N 个 best checkpoint，旧自动删除。
   save_total_limit: 3
 
-  # 用于比较"最优"模型的指标。
-  # 需与 save_strategy="best" 配合使用。
+  # 比较最优模型的指标。
   metric_for_best_model: "eval_loss"
 
-  # 训练结束时自动加载最优 checkpoint（而非最后一个）。
-  # 配合 early stopping + save_strategy="best" 使用，确保拿到最佳模型。
+  # 训练结束时自动加载最优 checkpoint。
   load_best_model_at_end: true
 
 # ============================================================
-# 对话模板
+# 9. 对话模板
 # ============================================================
-
 # assistant 回复的起始标记。
-# DataCollatorForCompletionOnlyLM 通过查找此字符串定位 assistant 回复的位置，
-# 将之前的 token（system + user 部分）的 label 设为 -100，
-# 从而仅对 assistant 回复计算 loss，不学习提问部分。
-# Qwen2.5 的 assistant 标记为 "<|im_start|>assistant\n"。
-# 其他模型需相应修改：Llama 为 "assistant\n"，ChatGLM 为 "<|assistant|>"。
+# DataCollatorForCompletionOnlyLM 通过此标记定位 assistant 回复位置，
+# 将其之前的 token（system + user 部分）label 设为 -100，
+# 仅对 assistant 回复计算 loss。
+#
+# 常见模型标记：
+#   Qwen2.5:  "<|im_start|>assistant\n"
+#   Llama3:   "<|start_header_id|>assistant<|end_header_id|>\n\n"
+#   ChatGLM:  "<|assistant|>"
 response_template: "<|im_start|>assistant\n"
 
-# 系统提示词。
-# 在每条对话开头插入，定义模型的角色和行为风格。
-# 训练和推理时需保持一致。
+# 系统提示词（训练与推理时保持一致）。
 system_prompt: "You are a helpful assistant."
 
 # ============================================================
-# 设备
+# 10. 设备
 # ============================================================
-
-# 使用的 GPU 编号。
-# "0" 表示第一张 GPU。使用 "0,1" 选择多张（需同步修改训练脚本以支持 DDP）。
-# 当前脚本为单卡场景，多卡需额外配置 accelerate 或 torchrun。
+# 使用的 GPU 编号。"0" = 第一张，单卡场景。
 cuda_visible_devices: "0"
 
 # ============================================================
-# 镜像加速
+# 11. 镜像加速
 # ============================================================
-
 # Hugging Face 服务端点。
-# 国内环境使用 https://hf-mirror.com 加速模型和数据集下载。
-# 海外环境可改为 https://huggingface.co（官方默认）。
+# 国内：https://hf-mirror.com（默认），海外：https://huggingface.co
 hf_endpoint: "https://hf-mirror.com"
 
 # ============================================================
-# 日志
+# 12. 日志
 # ============================================================
 log:
-  # 日志级别：DEBUG / INFO / WARNING / ERROR
+  # DEBUG / INFO / WARNING / ERROR
   level: "INFO"
 
-  # 日志文件路径（相对于项目根目录）。
-  # 训练过程中的所有日志将同时输出到控制台和此文件。
+  # 日志文件路径。同时输出到控制台和此文件。
   file: "./train.log"
 
-  # 日志格式。可用变量：asctime, levelname, name, message。
+  # 日志格式。可用变量：asctime, levelname, name, message
   format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 # ============================================================
-# 评估
+# 13. 评估
 # ============================================================
 eval:
-  # 评测样本数量。
-  # 从数据集中随机抽取 N 条用于评估（不参与训练打分仅做推断）。
-  # 设置为 0 表示使用全部数据。
+  # 评测样本数量。随机抽取，固定种子 42 保证可复现。0 = 全部。
   num_samples: 50
 
-  # 生成参数。
-  max_new_tokens: 512                     # 生成回答的最大 token 数
-  temperature: 0.1                        # 低温采样（越低越确定，便于对比复现）
+  # 生成参数
+  max_new_tokens: 512           # 最大生成 token 数
+  temperature: 0.1              # 低温采样（越低越确定）
 
-  # 评估报告输出路径（相对于项目根目录）。
-  report_path: "./eval_report.md"         # Markdown 评测报告
-  json_path: "./eval_results.json"        # 结构化原始数据（供程序化分析）
+  # 评估报告输出路径
+  report_path: "./eval_report.md"
+  json_path: "./eval_results.json"
 
+
+# ============================================================
+# 附录 A：按数据量调参速查表
+# ============================================================
+#
+# ┌──────────┬───────┬───────┬───────┬───────┬───────┬────────┐
+# │ 参数     │ 100   │ 500   │ 1000  │ 2000  │ 5000  │ 10000  │
+# ├──────────┼───────┼───────┼───────┼───────┼───────┼────────┤
+# │ LoRA r   │ 4     │ 8     │ 16    │ 32    │ 64    │ 64     │
+# │ LoRA α   │ 8     │ 16    │ 32    │ 64    │ 128   │ 128    │
+# │ dropout  │ 0.15  │ 0.10  │ 0.10  │ 0.05  │ 0.05  │ 0.05   │
+# │ lr       │ 5e-5  │ 1e-4  │ 2e-4  │ 3e-4  │ 5e-4  │ 5e-4   │
+# │ epochs   │ 200   │ 100   │ 50    │ 30    │ 15    │ 10     │
+# │ batch    │ 2×4=8 │ 4×4=16│ 4×8=32│ 8×8=64│ 16×8=  │ 32×8=  │
+# │          │       │       │       │       │ 128    │ 256    │
+# │ w_decay  │ 0.05  │ 0.02  │ 0.01  │ 0.01  │ 0.005  │ 0.005  │
+# │ warmup   │ 0.10  │ 0.05  │ 0.03  │ 0.03  │ 0.02   │ 0.02   │
+# │ patience │ 20    │ 15    │ 10    │ 8     │ 5      │ 5      │
+# │ eval_sp  │ 0.15  │ 0.15  │ 0.10  │ 0.10  │ 0.05   │ 0.05   │
+# │ NEFTune  │ 10    │ 8     │ 5     │ 5     │ 3      │ 0      │
+# │ temp     │ 2.0   │ 2.0   │ 2.0   │ 3.0   │ 3.0    │ 4.0    │
+# │ target   │ q+v   │ q+v   │ q+v   │ q+v+  │ q+v+   │ q+v+   │
+# │ modules  │       │       │       │ k+o   │ k+o+g  │ k+o+g+ │
+# │          │       │       │       │       │ +u+d   │ u+d    │
+# └──────────┴───────┴───────┴───────┴───────┴───────┴────────┘
+#
+# 缩略说明：
+#   r      = LoRA rank
+#   α       = LoRA alpha (通常 = 2×r)
+#   dropout = LoRA dropout
+#   lr      = 学习率
+#   epochs  = 最大训练轮次
+#   batch   = per_device_batch_size × gradient_accumulation_steps
+#   w_decay = weight_decay (L2 正则)
+#   warmup  = warmup_ratio
+#   patience= early_stopping_patience
+#   eval_sp = eval_split_ratio
+#   NEFTune = neftune_noise_alpha (0=禁用)
+#   temp    = 蒸馏温度
+#   target  = LoRA 目标模块（q=q_proj, v=v_proj, k=k_proj, o=o_proj,
+#             g=gate_proj, u=up_proj, d=down_proj）
+#
+# ============================================================
+# 附录 B：数据量与策略指南
+# ============================================================
+#
+# 【100 条 — 极少量原型验证】
+#   定位：快速跑通流程，验证数据格式和蒸馏链路是否正确。
+#   策略：
+#     — LoRA r=4 极简防止严重过拟合，dropout=0.15 强正则
+#     — 学习率 5e-5 极小步更新，NEFTune=10 最大化泛化
+#     — epoch=200 + patience=20，给足收敛时间
+#     — 数据增强强烈建议开启（paraphrase_count=3）
+#     — 预期：PPL 明显下降，ROUGE-L 0.15–0.25，人工可感知改进
+#   风险：极易过拟合，eval_loss 曲线需密切监控。
+#
+# 【500 条 — 小规模实验】
+#   定位：验证蒸馏策略有效性，迭代 prompt/数据质量。
+#   策略：
+#     — LoRA r=8 标准配置，dropout=0.10
+#     — 学习率 1e-4 适中更新，NEFTune=8
+#     — epoch=100 + patience=15
+#     — 蒸馏温度 T=2 软化教师分布
+#     — 预期：ROUGE-L > 0.2，回答风格接近教师
+#   风险：数据质量对效果影响大，需人工抽查教师回答。
+#
+# 【1000 条 — 推荐起步规模】
+#   定位：项目默认配置，性价比最高。
+#   策略：
+#     — LoRA r=16 起，alpha=32，增加表达能力
+#     — 学习率 2e-4，warmup=0.03，标准配置
+#     — epoch=50 + patience=10
+#     — 可开启多教师融合（sampling="all"）
+#     — 预期：ROUGE-L > 0.25，回答专业化程度明显提升
+#
+# 【2000 条 — 中等规模】
+#   定位：数据覆盖较全，模型能力显著提升。
+#   策略：
+#     — LoRA r=32，可扩展 target_modules 到 k_proj/o_proj
+#     — 学习率 3e-4，batch=64
+#     — epoch=30，蒸馏温度 T=3
+#     — 关闭 NEFTune（数据足够，噪声可能干扰）
+#     — 预期：ROUGE-L > 0.3，专业回答接近教师水平
+#
+# 【5000 条 — 大规模】
+#   定位：接近生产级效果，覆盖边缘 case。
+#   策略：
+#     — LoRA r=64，target_modules 扩展至 6 个（q/v/k/o/gate/up）
+#     — 学习率 5e-4，batch=128
+#     — epoch=15，蒸馏温度 T=3
+#     — eval_split_ratio=0.05（数据多，5% 即可）
+#     — NEFTune=0 关闭
+#     — 预期：ROUGE-L > 0.35，部分回答可超越单一教师
+#
+# 【10000 条 — 工业级】
+#   定位：充分训练，模型稳定可靠。
+#   策略：
+#     — LoRA r=64，全模块覆盖（7 个 target_modules）
+#     — 学习率 5e-4，batch=256，epoch=10
+#     — 蒸馏温度 T=4，最大化暗知识迁移
+#     — 可开启灰盒蒸馏（distill_weight > 0，需要教师 logits）
+#     — 预期：ROUGE-L > 0.4，稳定输出高质量专业回答
+#     — 可考虑升级学生模型（Qwen2.5-1.5B）进一步提升上限

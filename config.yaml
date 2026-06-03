@@ -29,6 +29,13 @@
 #   target_modules     — 大模型可增加 LoRA 模块（k_proj/o_proj 等）
 model_id: "Qwen/Qwen3-0.6B"
 
+# 注意力实现方式（显存/速度权衡）：
+#   "auto"                — 自动检测: FA3(Blackwell) > FA2(Ampere/Hopper) > SDPA（推荐）
+#   "flash_attention_2"   — Flash Attention，HF 自动根据 GPU 架构选择 FA3/FA2
+#   "sdpa"                — PyTorch 2.0+ 内置 SDPA（无需额外安装）
+#   "eager"               — 原生 attention（兼容性最好，显存最大）
+attn_implementation: "auto"
+
 # 备选：1.7B 大模型（取消注释并注释上行即可切换）
 # model_id: "Qwen/Qwen3-1.7B"
 
@@ -207,10 +214,10 @@ training:
 
   # 梯度累积步数。
   # 等效 batch = per_device_batch_size × gradient_accumulation_steps
-  #            = 4 × 8 = 32
+  #            = 2 × 6 = 12
   #
   # 小数据集用小 batch（梯度噪声有助于泛化），大数据集用大 batch（梯度更准）。
-  gradient_accumulation_steps: 8
+  gradient_accumulation_steps: 6
 
   # ---- 学习率 ----
   # LoRA 微调推荐 lr 高于全量微调（全量通常 1e-5 ~ 5e-5）。
@@ -302,7 +309,7 @@ training:
 
   # 控制台日志打印间隔（步数）。
   # 小数据集可设小值（如 5）实时观察，大数据集设大值（如 50）减少刷屏。
-  logging_steps: 5
+  logging_steps: 1
 
   # checkpoint 保存策略：
   #   "best"  — 仅 eval_loss 改善时保存（推荐）

@@ -98,6 +98,36 @@ PolyDistill/
 pip install -r requirements.txt
 ```
 
+### Flash Attention (Memory Optimization, Optional)
+
+Flash Attention reduces attention-layer memory by 30-50% and speeds up training by 20-50%. When `attn_implementation: "auto"`, the optimal implementation is auto-detected:
+
+| GPU Arch | SM Version | Auto-Selected | Representative GPU |
+|----------|-----------|---------------|-------------------|
+| Blackwell | ≥ 120 | Flash Attention 3 | RTX 5080/5090 |
+| Hopper | ≥ 90 | Flash Attention 3 | H100 |
+| Ada | ≥ 89 | Flash Attention 2 | RTX 4090 |
+| Ampere | ≥ 80 | Flash Attention 2 | RTX 3090, A100 |
+| Volta/Turing | < 80 | SDPA | V100, RTX 2080Ti |
+| flash-attn not installed | — | SDPA (PyTorch built-in) | Any |
+
+**Install (Recommended)**:
+
+```bash
+# Linux / WSL2
+pip install flash-attn --no-build-isolation
+
+# Windows: source build requires MSVC + CUDA toolkit; pre-built wheels recommended
+# Download from https://github.com/Dao-AILab/flash-attention/releases
+# Example for CUDA 12.8 + PyTorch 2.8 + Python 3.10:
+pip install flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSE-cp310-cp310-win_amd64.whl
+```
+
+> **Note**:
+> - Flash Attention 3 requires `flash-attn >= 2.6` + `transformers >= 4.51`
+> - Falls back to SDPA automatically if flash-attn is not installed — training proceeds normally
+> - RTX 5080/5090 (Blackwell) requires pre-built wheel or flash-attn >= 2.7 (source build needs CUDA 12.8+)
+
 > GPU requirement: NVIDIA Driver ≥ 525 (CUDA 12 compatible). Ampere+ architecture recommended (3090/4090/5090/A100) for BF16 support.
 
 ## Dataset

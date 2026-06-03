@@ -8,6 +8,7 @@
 import logging
 import os
 import sys
+import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +26,14 @@ class Config:
 
     # ---- 模型 ----
     MODEL_ID: str = "Qwen/Qwen3-0.6B"
+    # 注意力实现: "auto" | "flash_attention_2" | "sdpa" | "eager"
+    #   auto                — 自动: FA3(Blackwell) > FA2(Ampere) > SDPA(回退)
+    #   flash_attention_2   — Flash Attention，HF 内部根据 GPU 自动路由 FA3/FA2
+    #   sdpa                — PyTorch 2.0+ 内置 scaled_dot_product_attention
+    #   eager               — 原生实现，兼容性最好但显存最大
+    # 注意: HF 的 attn_implementation 参数不支持 "flash_attention_3"，
+    #       传 "flash_attention_2" 即可在 Blackwell 上自动使用 FA3 kernel。
+    ATTN_IMPLEMENTATION: str = "auto"
 
     # ---- 数据 ----
     DATA_DIR: str = "./data"  # 数据目录，自动读取目录下所有 .json 文件并合并
@@ -118,6 +127,7 @@ class Config:
 _FIELD_MAP = {
     # ---- 模型 ----
     "model_id": "MODEL_ID",
+    "attn_implementation": "ATTN_IMPLEMENTATION",
     # ---- 数据 ----
     "data_dir": "DATA_DIR",
     # ---- 路径 ----
@@ -277,6 +287,30 @@ def setup_environment(config: Config) -> None:
     # 禁止 tokenizer 多进程并行（避免与 DataLoader 多进程冲突）
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+    # Windows 上 flash-attn.ops.triton 会 import triton，但 triton 是 Linux 专属包。
+    # 在 import 链触发前注入 mock triton 模块，防止 ModuleNotFoundError 中断整个流程。
+    # flash-attn 的核心 CUDA ops 不依赖 triton，注入 mock 不影响 FA2/FA3 正常使用。
+    #
+    # 双重注入策略（解决 Windows multiprocessing spawn 子进程问题）：
+    #   1. 运行时注入: sys.meta_path + sys.modules → 保护当前进程
+    #   2. .pth 文件注入: site-packages 下安装 _triton_win32_mock.pth
+    #      → 保护 DataLoader spawn 子进程（子进程不执行 setup_environment，
+    #         但 site.py 会处理 .pth 文件，早于任何 import）
+    if sys.platform == "win32":
+        _inject_triton_mock_if_needed()
+        _install_triton_mock_pth()
+
+    # 静默 TensorFlow 日志（非 TF 项目，但依赖可能间接导入 TF）。
+    # TF_CPP_MIN_LOG_LEVEL: 0=ALL 1=INFO 2=WARNING 3=ERROR
+    # 用 os.environ["..."]= 直接覆盖（非 setdefault），确保生效。
+    # TF 用内部 absl/tf_logging，Python warnings.filterwarnings 无法拦截；
+    # 设置 "3" 只显示 ERROR，完全静默 WARNING/INFO。
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+    # 抑制 TF/Keras 通过 Python warnings 模块发出的 deprecation
+    warnings.filterwarnings("ignore", message=".*sparse_softmax_cross_entropy.*")
+    warnings.filterwarnings("ignore", message=".*oneDNN custom operations.*")
+
     # 初始化日志系统（环境就绪后、业务逻辑之前）
     setup_logging(config)
 
@@ -300,6 +334,294 @@ def _reset_ddp_env() -> None:
     ]
     for key in ddp_keys:
         os.environ.pop(key, None)
+
+
+def _inject_triton_mock_if_needed() -> None:
+    """Windows 上 triton 不可用时，通过 sys.meta_path 拦截所有 triton.* 导入。
+
+    flash-attn / transformers / torch._dynamo / torch._inductor 等多层库
+    在不同路径以 import 语句或属性访问方式使用 triton。逐一在 sys.modules
+    预注册所有子模块不可行（torch._inductor 深层依赖 triton.backends.compiler
+    等未知子包）。
+
+    解决方案：在 sys.meta_path 注册一个自定义查找器，拦截所有以 "triton" /
+    "triton." 开头的导入请求，自动创建 mock 模块注入 sys.modules。
+    flash-attn 的 CUDA kernel (FA2/FA3) 不依赖 triton 运行时，mock 不影响训练。
+    """
+    try:
+        import triton  # noqa: F401
+        return  # triton 已安装，无需 mock
+    except ImportError:
+        pass
+
+    import types
+    from importlib.abc import Loader, MetaPathFinder
+    from importlib.machinery import ModuleSpec
+
+    class _TritonFinder(MetaPathFinder):
+        """自动创建 triton.* 的 mock 模块。"""
+
+        def find_spec(self, fullname, path, target=None):
+            # 仅拦截 triton / triton.xxx / triton.xxx.yyy ...
+            if fullname != "triton" and not fullname.startswith("triton."):
+                return None  # 不处理，交给下一个查找器
+
+            # 如果已经被注册了（例如 triton / triton.language），复用
+            if fullname in sys.modules:
+                mod = sys.modules[fullname]
+                return mod.__spec__ if hasattr(mod, "__spec__") else None
+
+            return ModuleSpec(fullname, _TritonLoader(), origin="mock")
+
+    class _TritonLoader(Loader):
+        """创建 mock 模块，处理属性访问和包结构。"""
+
+        def create_module(self, spec):
+            mod = _AnyAttrModule(spec.name)
+            mod.__spec__ = spec
+            mod.__path__ = []       # 标记为包（允许 triton.xxx.zzz 子导入）
+            mod.__file__ = "mock"
+            mod.__loader__ = self
+            mod.__package__ = spec.name
+            return mod
+
+        def exec_module(self, module):
+            # 特殊处理：triton 根模块
+            if module.__name__ == "triton":
+                module.__version__ = "0.0.0.win32.mock"
+                module.jit = _make_triton_jit()
+                module.autotune = _make_triton_decorator()
+                module.heuristics = _make_triton_decorator()
+                # 确保 triton.backends 可访问
+                if "triton.language" not in sys.modules:
+                    self._ensure("triton.language")
+
+            # 特殊处理：triton.backends（torch._inductor 依赖回退路径）
+            if module.__name__ == "triton.backends":
+                if "triton.backends.compiler" not in sys.modules:
+                    self._ensure("triton.backends.compiler")
+
+        def _ensure(self, name):
+            """确保某个子模块已注册到 sys.modules。"""
+            if name not in sys.modules:
+                spec = ModuleSpec(name, _TritonLoader(), origin="mock")
+                mod = _AnyAttrModule(name)
+                mod.__spec__ = spec
+                mod.__path__ = []
+                mod.__file__ = "mock"
+                mod.__loader__ = self
+                mod.__package__ = name
+                sys.modules[name] = mod
+
+    class _AnyAttrModule(types.ModuleType):
+        """对任意属性访问返回合法的 mock 值，不抛 AttributeError。"""
+
+        def __getattr__(self, name):
+            if name.startswith("_"):
+                raise AttributeError(name)
+            child = _AnyAttrModule(f"{self.__name__}.{name}")
+            child.__spec__ = ModuleSpec(child.__name__, loader=None, origin="mock")
+            child.__path__ = []
+            child.__file__ = "mock"
+            child.__loader__ = None
+            child.__package__ = child.__name__
+            setattr(self, name, child)
+            return child
+
+    def _make_triton_jit():
+        def jit(*args, **kwargs):
+            def decorator(fn):
+                return fn
+            if len(args) == 1 and callable(args[0]):
+                return args[0]
+            return decorator
+        return jit
+
+    def _make_triton_decorator():
+        return lambda *args, **kwargs: lambda fn: fn
+
+    # ---- 注册 meta_path 查找器（最高优先级） ----
+    sys.meta_path.insert(0, _TritonFinder())
+
+    # ---- 注册 triton 根（meta_path 不触发已有的 sys.modules 条目） ----
+    spec = ModuleSpec("triton", _TritonLoader(), origin="mock")
+    mock = _AnyAttrModule("triton")
+    mock.__spec__ = spec
+    mock.__path__ = []
+    mock.__file__ = "mock"
+    mock.__loader__ = _TritonLoader()
+    mock.__package__ = "triton"
+    mock.__version__ = "0.0.0.win32.mock"
+    mock.jit = _make_triton_jit()
+    mock.autotune = _make_triton_decorator()
+    mock.heuristics = _make_triton_decorator()
+    sys.modules["triton"] = mock
+
+    import logging
+    logging.getLogger(__name__).info(
+        "Windows 环境: 已注入 triton mock 导入钩子 (flash-attn CUDA ops 不受影响)"
+    )
+
+
+def _install_triton_mock_pth() -> None:
+    """在 site-packages 下安装 .pth 文件，使 triton mock 在 spawn 子进程中也生效。
+
+    Windows multiprocessing 使用 spawn 模式，DataLoader worker 是全新 Python 进程，
+    不继承父进程的 sys.meta_path / sys.modules 注入。但所有 Python 进程都会在启动时
+    由 site.py 处理 site-packages 下的 .pth 文件，因此在此安装一个 .pth 文件可确保
+    子进程在 import 任何模块之前已完成 triton mock 注入。
+
+    .pth 文件格式：一行 "import <module>" 会被 site.py 执行。
+    同时写入 _triton_win32_mock.py 作为独立的 mock 模块。
+    """
+    try:
+        import site
+        site_dirs = site.getsitepackages()
+        if not site_dirs:
+            return
+        target_dir = site_dirs[0]
+    except Exception:
+        return
+
+    mock_module_path = os.path.join(target_dir, "_triton_win32_mock.py")
+
+    # 写入自包含的 triton mock 模块。
+    # 此模块无外部依赖, 不引用 poly_distill 的任何代码,
+    # 确保在任意 Python 进程中都能独立运行。
+    _TRITON_MOCK_CODE = r'''
+# Auto-generated by PolyDistill. Do not edit manually.
+# Purpose: mock triton on Windows so flash-attn + transformers import chains don't break
+# in multiprocessing spawn child processes (DataLoader workers).
+#
+# This file is self-contained (zero external dependencies) so it works in ANY Python
+# process, including spawned subprocesses that don't import poly_distill at all.
+#
+# The mock is a no-op on Linux or if real triton is installed.
+import sys
+import os
+
+if sys.platform != "win32":
+    pass  # not needed on Linux
+else:
+    try:
+        import triton  # noqa: F401
+        # real triton is installed, no mock needed
+    except ImportError:
+        import types
+        from importlib.abc import Loader, MetaPathFinder
+        from importlib.machinery import ModuleSpec
+
+        # Prevent double injection
+        if any(getattr(f, "__name__", "") == "_TritonWin32Finder"
+               for f in sys.meta_path):
+            pass  # already injected
+        else:
+            class _TritonWin32Finder(MetaPathFinder):
+                def find_spec(self, fullname, path, target=None):
+                    if fullname != "triton" and not fullname.startswith("triton."):
+                        return None
+                    if fullname in sys.modules:
+                        mod = sys.modules[fullname]
+                        return mod.__spec__ if hasattr(mod, "__spec__") else None
+                    return ModuleSpec(fullname, _TritonWin32Loader(), origin="mock")
+
+            class _TritonWin32Loader(Loader):
+                def create_module(self, spec):
+                    mod = _AnyAttrModuleWin32(spec.name)
+                    mod.__spec__ = spec
+                    mod.__path__ = []
+                    mod.__file__ = "mock"
+                    mod.__loader__ = self
+                    mod.__package__ = spec.name
+                    return mod
+
+                def exec_module(self, module):
+                    if module.__name__ == "triton":
+                        module.__version__ = "0.0.0.win32.mock"
+                        module.jit = _make_triton_jit_win32()
+                        module.autotune = lambda *a, **kw: lambda fn: fn
+                        module.heuristics = lambda *a, **kw: lambda fn: fn
+                        if "triton.language" not in sys.modules:
+                            self._ensure("triton.language")
+                    if module.__name__ == "triton.backends":
+                        if "triton.backends.compiler" not in sys.modules:
+                            self._ensure("triton.backends.compiler")
+
+                def _ensure(self, name):
+                    if name not in sys.modules:
+                        spec = ModuleSpec(name, _TritonWin32Loader(), origin="mock")
+                        mod = _AnyAttrModuleWin32(name)
+                        mod.__spec__ = spec
+                        mod.__path__ = []
+                        mod.__file__ = "mock"
+                        mod.__loader__ = self
+                        mod.__package__ = name
+                        sys.modules[name] = mod
+
+            class _AnyAttrModuleWin32(types.ModuleType):
+                def __getattr__(self, name):
+                    if name.startswith("_"):
+                        raise AttributeError(name)
+                    child = _AnyAttrModuleWin32(self.__name__ + "." + name)
+                    child.__spec__ = ModuleSpec(child.__name__, loader=None, origin="mock")
+                    child.__path__ = []
+                    child.__file__ = "mock"
+                    child.__loader__ = None
+                    child.__package__ = child.__name__
+                    setattr(self, name, child)
+                    return child
+
+            def _make_triton_jit_win32():
+                def jit(*args, **kwargs):
+                    def decorator(fn):
+                        return fn
+                    if len(args) == 1 and callable(args[0]):
+                        return args[0]
+                    return decorator
+                return jit
+
+            sys.meta_path.insert(0, _TritonWin32Finder())
+            spec_root = ModuleSpec("triton", _TritonWin32Loader(), origin="mock")
+            root = _AnyAttrModuleWin32("triton")
+            root.__spec__ = spec_root
+            root.__path__ = []
+            root.__file__ = "mock"
+            root.__loader__ = _TritonWin32Loader()
+            root.__package__ = "triton"
+            root.__version__ = "0.0.0.win32.mock"
+            root.jit = _make_triton_jit_win32()
+            root.autotune = lambda *a, **kw: lambda fn: fn
+            root.heuristics = lambda *a, **kw: lambda fn: fn
+            sys.modules["triton"] = root
+'''
+
+    # 写入 mock 模块（仅在内容变化时写入，避免无谓的磁盘 I/O）
+    try:
+        with open(mock_module_path, "r", encoding="utf-8") as f:
+            existing = f.read()
+    except FileNotFoundError:
+        existing = ""
+    if existing != _TRITON_MOCK_CODE:
+        with open(mock_module_path, "w", encoding="utf-8") as f:
+            f.write(_TRITON_MOCK_CODE)
+
+    # 写入 .pth 文件（site.py 会在启动时执行其中的 import 行）
+    pth_path = os.path.join(target_dir, "_triton_win32_mock.pth")
+    pth_content = "import _triton_win32_mock\n"
+    try:
+        with open(pth_path, "r", encoding="utf-8") as f:
+            existing_pth = f.read()
+    except FileNotFoundError:
+        existing_pth = ""
+    if existing_pth != pth_content:
+        with open(pth_path, "w", encoding="utf-8") as f:
+            f.write(pth_content)
+
+    import logging
+    logging.getLogger(__name__).info(
+        "Windows 环境: 已安装 triton mock .pth 到 %s (保护 DataLoader spawn 子进程)",
+        target_dir,
+    )
 
 
 # ============================================================

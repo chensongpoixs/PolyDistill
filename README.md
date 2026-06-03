@@ -96,6 +96,36 @@ PolyDistill/
 pip install -r requirements.txt
 ```
 
+### Flash Attention（显存优化，可选）
+
+Flash Attention 可将注意力层显存降低 30-50%，训练速度提升 20-50%。`attn_implementation: "auto"` 时自动检测并使用最优实现：
+
+| GPU 架构 | SM 版本 | 自动选择 | 代表显卡 |
+|----------|---------|----------|---------|
+| Blackwell | ≥ 120 | Flash Attention 3 | RTX 5080/5090 |
+| Hopper | ≥ 90 | Flash Attention 3 | H100 |
+| Ada | ≥ 89 | Flash Attention 2 | RTX 4090 |
+| Ampere | ≥ 80 | Flash Attention 2 | RTX 3090, A100 |
+| Volta/Turing | < 80 | SDPA | V100, RTX 2080Ti |
+| 未安装 flash-attn | — | SDPA（PyTorch 内置） | 任意 |
+
+**安装（推荐）**：
+
+```bash
+# Linux / WSL2
+pip install flash-attn --no-build-isolation
+
+# Windows：源码编译需要 MSVC + CUDA 开发环境，推荐下载预编译 wheel
+# 从 https://github.com/Dao-AILab/flash-attention/releases 下载对应版本
+# 例如 CUDA 12.8 + PyTorch 2.8 + Python 3.10：
+pip install flash_attn-2.8.3+cu128torch2.8.0cxx11abiFALSE-cp310-cp310-win_amd64.whl
+```
+
+> **注意**：
+> - Flash Attention 3 需要 `flash-attn >= 2.6` + `transformers >= 4.51`
+> - 未安装 flash-attn 时自动回退 SDPA，训练正常进行，仅显存占用较高
+> - RTX 5080/5090（Blackwell）必须使用预编译 wheel 或 flash-attn >= 2.7（源码编译需 CUDA 12.8+）
+
 > GPU 驱动要求：NVIDIA Driver ≥ 525（CUDA 12 兼容）。推荐 Ampere 及以上架构（3090/4090/5090/A100 等）以支持 BF16。
 
 ## 数据集

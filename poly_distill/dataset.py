@@ -105,7 +105,7 @@ def _format_conversation(
         {response}<|im_end|>
 
     DataCollatorForCompletionOnlyLM 以 "<|im_start|>assistant\n" 为界，
-    thinking + response 整段参与 loss 计算。
+    reasoning_content + response 整段参与 loss 计算。
     """
     system = example.get("system") or config.SYSTEM_PROMPT
     messages_raw = example.get("messages", [])
@@ -120,12 +120,14 @@ def _format_conversation(
             break
 
     # 构造 assistant 内容
-    assistant_content = f"{thinking}\n\n{response}" if thinking else response
+    #assistant_content = f"{thinking}\n\n{response}" if thinking else response
 
+
+    #logger.info("构建对话:\n  system: %s\n  user: %s\n  assistant: %s", system, user_content, assistant_content);
     chat_messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user_content},
-        {"role": "assistant", "content": assistant_content},
+        {"role": "assistant", "reasoning_content": thinking, "content": response},
     ]
     return tokenizer.apply_chat_template(
         chat_messages, tokenize=False, add_generation_prompt=False

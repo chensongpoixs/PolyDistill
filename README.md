@@ -111,7 +111,7 @@ pip install -r requirements.txt
 - **AI 应用**：RAG 检索优化、Whisper 流式 ASR、CosyVoice2 零样本 TTS
 - **系统工程**：P2P 中转服务器设计、共享内存环形缓冲区、设备注册与心跳
 
-### 数据格式
+### SFT数据集格式
 
 ```json
 [
@@ -202,6 +202,26 @@ tokenizer = AutoTokenizer.from_pretrained("./models/TinySage-0.6B")
 - `checkpoint-{step}/` — 各 epoch 检查点
 - `eval_report.md` — 评测报告（自动生成）
 - `eval_results.json` — 结构化评测结果
+
+### 训练日志参数
+
+训练过程中每 `logging_steps` 步输出一行日志，各字段含义：
+
+| 参数 | 含义 | 说明 |
+|------|------|------|
+| `loss` | 交叉熵损失 | 当前 step 的 language modeling loss，越低拟合越好 |
+| `grad_norm` | 梯度范数 | 梯度裁剪前的总梯度 L2 范数，反映参数更新幅度；过大可能震荡，过小可能停滞 |
+| `learning_rate` | 学习率 | 当前 step 的实际 LR，随 scheduler 变化（如 cosine 衰减） |
+| `num_tokens` | 已处理 token 数 | 训练到目前为止处理的总 token 数 |
+| `mean_token_accuracy` | 平均 token 准确率 | 每个 token 预测正确的比例，接近 1.0 表示模型已高度拟合当前数据 |
+| `epoch` | 当前 epoch | 小数格式（如 58.4 表示第 58 个 epoch 的 40% 进度） |
+
+### 训练监控要点
+
+- **`loss` 持续下降 + `eval_loss` 持平或上升** → 过拟合信号，考虑早停或增强正则化
+- **`grad_norm` 突然飙升** → 梯度爆炸，`max_grad_norm` 已在裁剪但需关注
+- **`mean_token_accuracy` 快速接近 1.0** → 模型记忆训练集，验证集性能可能已经开始退化
+- **`learning_rate`** → 随 cosine/linear scheduler 逐步衰减到 0
 
 ## 注意事项
 

@@ -205,6 +205,26 @@ After training, the output directory contains:
 - `eval_report.md` — evaluation report (auto-generated)
 - `eval_results.json` — structured results
 
+### Training Log Parameters
+
+During training, a log entry is printed every `logging_steps` steps:
+
+| Parameter | Meaning |
+|-----------|---------|
+| `loss` | Cross-entropy loss — lower is better fit |
+| `grad_norm` | Total gradient L2 norm before clipping — reflects update magnitude |
+| `learning_rate` | Current LR after scheduler step (e.g. cosine decay) |
+| `num_tokens` | Total tokens processed so far |
+| `mean_token_accuracy` | Token-level prediction accuracy — approaching 1.0 signals memorization |
+| `epoch` | Current epoch in fractional form (e.g. 58.4 = epoch 58 at 40%)
+
+### Training Monitoring
+
+- **`loss` dropping while `eval_loss` plateaus/rises** → overfitting, consider early stopping
+- **`grad_norm` spikes** → gradient explosion, already clipped by `max_grad_norm`
+- **`mean_token_accuracy` nearing 1.0** → training set memorization, validation likely degrading
+- **`learning_rate`** → decays toward 0 via cosine/linear scheduler
+
 ## Notes
 
 - Uses HF mirror `hf-mirror.com` by default for China network. Set `hf_endpoint: "https://huggingface.co"` in `config.yaml` for overseas.

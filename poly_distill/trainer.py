@@ -56,6 +56,7 @@ class YOLOStyleProgressCallback(TrainerCallback):
         self._best_epoch = 0
         self._last_printed_epoch = -1  # 避免同一 epoch 重复打印
         self._header_printed = False
+        self._lr_history: dict[int, float] = {}  # epoch → LR，用于训练结束绘制曲线
 
     def _print_header(self):
         header = (
@@ -69,8 +70,9 @@ class YOLOStyleProgressCallback(TrainerCallback):
 
     def _get_gpu_mem(self) -> str:
         if torch.cuda.is_available():
-            allocated = torch.cuda.memory_allocated() / (1024 ** 3)
-            return f"{allocated:.1f}G"
+            # reserved 对应 nvidia-smi 显示的值，allocated 是 PyTorch 实际使用
+            reserved = torch.cuda.memory_reserved() / (1024 ** 3)
+            return f"{reserved:.1f}G"
         return "    N/A"
 
     def _format_epoch_line(self) -> str:
@@ -144,6 +146,9 @@ class YOLOStyleProgressCallback(TrainerCallback):
                 self._train_loss = last["loss"]
             if "learning_rate" in last:
                 self._lr = last["learning_rate"]
+        # 记录当前 epoch 的 LR（用于训练结束打印曲线）
+        if self._lr is not None:
+            self._lr_history[self._epoch] = self._lr
         self._print_line()  # 防重复自动处理
 
     def on_train_end(self, args, state, control, **kwargs):
@@ -157,6 +162,37 @@ class YOLOStyleProgressCallback(TrainerCallback):
             print(f"Training complete: {self._epoch} epochs, best checkpoint saved", flush=True)
         else:
             print(f"Training complete: {self._epoch} epochs", flush=True)
+
+        # ---- 学习率下降曲线 ----
+        if self._lr_history:
+            self._print_lr_curve()
+
+    def _print_lr_curve(self):
+        """训练结束时输出 LR 衰减曲线（ASCII 柱状图）。"""
+        print("\n" + "=" * 78)
+        print("Learning Rate Schedule (Cosine Decay)")
+        print("=" * 78)
+        epochs = sorted(self._lr_history.keys())
+        lr_values = [self._lr_history[e] for e in epochs]
+        max_lr = max(lr_values) if lr_values else 1.0
+
+        # 按行输出，每行 5 个 epoch
+        bar_width = 20
+        for i in range(0, len(epochs), 5):
+            line_parts = []
+            for j in range(i, min(i + 5, len(epochs))):
+                e = epochs[j]
+                lr = self._lr_history[e]
+                # ASCII bar
+                bar_len = max(1, int(lr / max_lr * bar_width))
+                bar = "█" * bar_len + " " * (bar_width - bar_len)
+                line_parts.append(f"  {e:>3d}: {lr:.2e} │{bar}│")
+            print("\n".join(line_parts))
+            if i + 5 < len(epochs):
+                print()  # 行间空行
+        print("-" * 78)
+        print(f"  LR range: {lr_values[-1]:.2e} → {lr_values[0]:.2e}  (start → end)")
+        print("=" * 78, flush=True)
 
 
 # ============================================================
@@ -285,6 +321,11 @@ def train(config: Config) -> tuple:
     """
     # ---- 1. 加载模型 ----
     model, tokenizer = load_model_and_tokenizer(config)
+
+    # ---- 梯度检查点：用计算换显存，激活值不全部存留 ----
+    if config.GRADIENT_CHECKPOINTING:
+        model.gradient_checkpointing_enable()
+        logger.info("梯度检查点已开启：激活值不缓存，节省 ~50% 显存")
 
     # ---- 2. 加载数据 + train/val split ----
     dataset = load_and_prepare_data(config, tokenizer)

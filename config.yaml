@@ -248,7 +248,7 @@ training:
   #   10000 条→ 10
   #
   # 配合 early_stopping_patience 自动早停，实际 epoch 通常远小于设定值。
-  num_train_epochs: 30
+  num_train_epochs: 300
 
 # ============================================================
 # 7. 正则化
@@ -279,7 +279,7 @@ training:
   # ---- 早停 ----
   # eval_loss 在 patience 个 epoch 内改善 < threshold 则停止。
   # 小数据集 patience 应更大（波动大，需要更多 epoch 确认收敛）。
-  early_stopping_patience: 10
+  early_stopping_patience: 0
   early_stopping_threshold: 0.001
 
   # ---- 验证集分割 ----
@@ -288,6 +288,10 @@ training:
   eval_split_ratio: 0.1
 
   # ---- 日志与保存 ----
+  # 梯度检查点：用 ~20% 训练速度换取 ~50% 显存节省。
+  # 16GB 显卡跑 0.6B 模型强烈建议开启，否则 8×梯度累积的激活值会撑爆显存。
+  gradient_checkpointing: true
+
   # 控制台日志打印间隔（步数）。
   # 小数据集可设小值（如 5）实时观察，大数据集设大值（如 50）减少刷屏。
   logging_steps: 10

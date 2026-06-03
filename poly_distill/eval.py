@@ -65,12 +65,11 @@ def _build_messages(example: dict, config: Config) -> list:
 
     thinking = example.get("thinking") or ""
     response = example.get("response", "")
-    assistant_content = f"{thinking}\n\n{response}" if thinking else response
 
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user_content},
-        {"role": "assistant", "content": assistant_content},
+        {"role": "assistant", "reasoning_content": thinking, "content": response},
     ]
 
 

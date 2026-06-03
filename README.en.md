@@ -195,6 +195,25 @@ model = AutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained("./models/TinySage-0.6B")
 ```
 
+### LLM-as-Judge Evaluation
+
+After training, enable an external LLM to automatically score generation quality across 4 dimensions: **accuracy / relevance / completeness / overall** (1-5 scale), with detailed commentary.
+
+```yaml
+# config.yaml
+eval:
+  llm_judge:
+    enabled: true                                         # Enable evaluation
+    endpoint: "http://your-llm-server/v1/chat/completions"  # OpenAI-compatible API
+    model: "gpt-4"                                        # Judge model name
+    api_key: "sk-xxx"                                     # API Key (falls back to env var LLM_JUDGE_API_KEY)
+    max_samples: 10                                       # Max samples to evaluate
+```
+
+Results are written to `eval_report.md` chapter 4 and `eval_results.json` under `llm_judge`.
+
+> **Recommended judges**: Claude 4.5/Opus 4.6, GPT-4o, DeepSeek-V3, or locally deployed models (Qwen3, Gemma) with OpenAI-compatible APIs.
+
 ## Output
 
 After training, the output directory contains:

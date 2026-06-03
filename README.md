@@ -193,6 +193,25 @@ model = AutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained("./models/TinySage-0.6B")
 ```
 
+### LLM-as-Judge 质量评估
+
+训练后可启用外部大模型自动评估生成质量，从 **准确性 / 相关性 / 完整性 / 整体质量** 4 维度打分（1-5 分），生成详细点评报告。
+
+```yaml
+# config.yaml
+eval:
+  llm_judge:
+    enabled: true                                         # 启用评估
+    endpoint: "http://your-llm-server/v1/chat/completions"  # 兼容 OpenAI API 的地址
+    model: "gpt-4"                                        # 裁判模型名
+    api_key: "sk-xxx"                                     # API Key（留空则读环境变量 LLM_JUDGE_API_KEY）
+    max_samples: 10                                       # 最大评估样本数
+```
+
+评估结果自动写入 `eval_report.md` 第 4 章和 `eval_results.json` 的 `llm_judge` 字段。
+
+> **推荐裁判模型**：Claude 4.5/Opus 4.6、GPT-4o、DeepSeek-V3 等强模型，或本地部署的 Qwen3/Gemma 等兼容 OpenAI API 的服务。
+
 ## 输出
 
 训练完成后在输出目录生成：

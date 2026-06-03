@@ -248,7 +248,7 @@ training:
   #   10000 条→ 10
   #
   # 配合 early_stopping_patience 自动早停，实际 epoch 通常远小于设定值。
-  num_train_epochs: 300
+  num_train_epochs: 10
 
 # ============================================================
 # 7. 正则化
@@ -294,7 +294,7 @@ training:
 
   # 控制台日志打印间隔（步数）。
   # 小数据集可设小值（如 5）实时观察，大数据集设大值（如 50）减少刷屏。
-  logging_steps: 10
+  logging_steps: 5
 
   # checkpoint 保存策略：
   #   "best"  — 仅 eval_loss 改善时保存（推荐）
@@ -368,6 +368,16 @@ eval:
   # 评估报告输出路径
   report_path: "./eval_report.md"
   json_path: "./eval_results.json"
+
+  # ---- LLM-as-Judge（大模型打分评估） ----
+  # 启用后，将生成样本发送给外部大模型做多维度质量评分（准确性/相关性/完整性/整体质量）。
+  # 要求外部 LLM 兼容 OpenAI Chat Completions API 格式。
+  llm_judge:
+    enabled: true                  # 是否启用（true/false）
+    endpoint: "http://221.10.121.80:20002/v1/chat/completions"  # LLM API 地址
+    model: "gemma-4-31B-it-Q4_0"                  # 裁判模型名称
+    api_key: "sk-xxxxxxxxxxxxxxxxxxxxxxxx"                     # API Key（留空则从环境变量 LLM_JUDGE_API_KEY 读取）
+    max_samples: 50                 # 最大评估样本数（避免 API 费用过高）
 
 
 # ============================================================

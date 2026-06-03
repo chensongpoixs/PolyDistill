@@ -5,6 +5,7 @@
   1. Perplexity (PPL) — 模型对测试文本的困惑度，越低越好
   2. ROUGE-L      — 生成答案与参考答案的最长公共子序列重叠度
   3. 生成样本对比  — base vs lora 的实际输出并排展示
+  4. LLM-as-Judge — 外部大模型多维度打分（准确性/相关性/完整性/整体质量）
 
 输出文件：
   - eval_report.md   : 可读的 Markdown 评测报告
@@ -27,6 +28,14 @@ from transformers import AutoModelForCausalLM, PreTrainedTokenizer
 from poly_distill.config import Config
 
 logger = logging.getLogger(__name__)
+
+# LLM-as-Judge 评分维度
+_JUDGE_CRITERIA = {
+    "accuracy": "准确性 — 回答内容技术正确、无事实错误",
+    "relevance": "相关性 — 回答紧扣问题，不偏离主题",
+    "completeness": "完整性 — 回答覆盖问题的关键要点，无重大遗漏",
+    "overall": "整体质量 — 综合评判回答的专业性和可用性",
+}
 
 
 # ============================================================
@@ -282,7 +291,211 @@ def collect_generation_samples(
 
 
 # ============================================================
-# 4. 报告生成
+# 4. LLM-as-Judge 评估（大模型打分）
+# ============================================================
+def _build_judge_prompt(question: str, reference: str, generated: str) -> str:
+    """构造给裁判模型的质量评估 prompt。"""
+    criteria_text = "\n".join(
+        f"  {i+1}. {name} — {desc}"
+        for i, (name, desc) in enumerate(_JUDGE_CRITERIA.items())
+    )
+    return f"""你是一位 AI Infra 领域技术专家。请对以下模型的回答进行质量评估。
+
+【问题】
+{question}
+
+【参考答案（教师模型）】
+{reference}
+
+【待评估回答（学生模型）】
+{generated}
+
+请从以下维度打分（1-5 分，5 分为最优）：
+{criteria_text}
+
+请以 JSON 格式输出（只输出 JSON，不要其他文字）：
+{{
+  "accuracy": <1-5>,
+  "relevance": <1-5>,
+  "completeness": <1-5>,
+  "overall": <1-5>,
+  "comment": "<一句话中文点评，指出主要优点和不足>"
+}}"""
+
+
+def _call_llm_judge(
+    endpoint: str,
+    model: str,
+    api_key: str,
+    prompt: str,
+    timeout: int = 60,
+) -> dict:
+    """调用外部 LLM API 进行质量评分。
+
+    兼容 OpenAI Chat Completions API 格式。
+    使用标准库 urllib，无需额外依赖。
+    """
+    import urllib.request
+    import urllib.error
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    body = json.dumps({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "You are a technical quality evaluator. Always respond in Chinese JSON format."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.1,
+        "max_tokens": 512,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        content = data["choices"][0]["message"]["content"].strip()
+
+        # 尝试提取 JSON（模型可能在 JSON 前后加了说明文字）
+        # 找第一个 { 和最后一个 }
+        start = content.find("{")
+        end = content.rfind("}")
+        if start != -1 and end != -1 and start < end:
+            return json.loads(content[start:end + 1])
+        else:
+            logger.warning("LLM Judge 返回非 JSON 格式: %s...", content[:200])
+            return {"error": "non_json_response", "raw": content[:500]}
+    except urllib.error.HTTPError as e:
+        logger.error("LLM Judge HTTP %d: %s", e.code, e.read().decode("utf-8", errors="replace")[:500])
+        return {"error": f"http_{e.code}"}
+    except urllib.error.URLError as e:
+        logger.error("LLM Judge 连接失败: %s", e.reason)
+        return {"error": "connection_failed", "detail": str(e.reason)}
+    except json.JSONDecodeError as e:
+        logger.error("LLM Judge JSON 解析失败: %s", e)
+        return {"error": "json_parse_error"}
+    except Exception as e:
+        logger.error("LLM Judge 未知错误: %s", e)
+        return {"error": "unknown", "detail": str(e)}
+
+
+def evaluate_with_llm_judge(
+    config: Config,
+    base_samples: list,
+    lora_samples: list,
+) -> dict:
+    """使用外部 LLM 对学生模型生成质量进行多维度评分。
+
+    Args:
+        config: 全局配置（含 LLM Judge 连接参数）。
+        base_samples: Base 模型生成样本 [{"instruction", "reference", "generated"}, ...]。
+        lora_samples: LoRA 模型生成样本。
+
+    Returns:
+        {
+            "enabled": bool,
+            "model": str,
+            "num_samples": int,
+            "lora_scores": {"accuracy": avg, "relevance": avg, ...},
+            "base_scores": {...},
+            "details": [{"instruction": str, "scores": {...}, "comment": str}, ...],
+        }
+    """
+    if not config.EVAL_LLM_JUDGE_ENABLED:
+        return {"enabled": False}
+
+    # API Key 优先级：config 值 > 环境变量
+    api_key = config.EVAL_LLM_JUDGE_API_KEY or os.environ.get("LLM_JUDGE_API_KEY", "")
+    if not api_key:
+        logger.warning("LLM Judge 已启用但未配置 api_key，跳过")
+        return {"enabled": False, "error": "no_api_key"}
+
+    logger.info("=" * 60)
+    logger.info("  LLM-as-Judge 质量评估")
+    logger.info("  Endpoint: %s", config.EVAL_LLM_JUDGE_ENDPOINT)
+    logger.info("  Model:    %s", config.EVAL_LLM_JUDGE_MODEL)
+    logger.info("=" * 60)
+
+    n_samples = min(config.EVAL_LLM_JUDGE_MAX_SAMPLES, len(lora_samples))
+    samples_to_score = lora_samples[:n_samples]
+    # 匹配 base 样本
+    base_map = {}
+    for b in base_samples:
+        base_map[b["instruction"]] = b["generated"]
+
+    all_lora_scores = {key: [] for key in _JUDGE_CRITERIA}
+    all_base_scores = {key: [] for key in _JUDGE_CRITERIA}
+    details = []
+
+    for i, sample in enumerate(samples_to_score):
+        question = sample["instruction"]
+        reference = sample["reference"]
+        lora_gen = sample["generated"]
+        base_gen = base_map.get(question, "")
+
+        logger.info("  [%d/%d] 评估: %s...", i + 1, n_samples, question[:60])
+
+        # 评估 LoRA 模型
+        prompt_lora = _build_judge_prompt(question, reference, lora_gen)
+        lora_result = _call_llm_judge(
+            config.EVAL_LLM_JUDGE_ENDPOINT,
+            config.EVAL_LLM_JUDGE_MODEL,
+            api_key,
+            prompt_lora,
+        )
+
+        time.sleep(0.5)  # 避免 API 限流
+
+        # 评估 Base 模型
+        prompt_base = _build_judge_prompt(question, reference, base_gen)
+        base_result = _call_llm_judge(
+            config.EVAL_LLM_JUDGE_ENDPOINT,
+            config.EVAL_LLM_JUDGE_MODEL,
+            api_key,
+            prompt_base,
+        )
+
+        # 收集分数
+        for key in _JUDGE_CRITERIA:
+            if isinstance(lora_result.get(key), (int, float)):
+                all_lora_scores[key].append(lora_result[key])
+            if isinstance(base_result.get(key), (int, float)):
+                all_base_scores[key].append(base_result[key])
+
+        details.append({
+            "instruction": question[:200],
+            "reference": reference[:300],
+            "lora_generated": lora_gen[:300],
+            "base_generated": base_gen[:300],
+            "lora_scores": {k: lora_result.get(k) for k in _JUDGE_CRITERIA},
+            "base_scores": {k: base_result.get(k) for k in _JUDGE_CRITERIA},
+            "lora_comment": lora_result.get("comment", ""),
+            "base_comment": base_result.get("comment", ""),
+        })
+
+    # 计算平均分
+    lora_avg = {k: round(sum(v) / len(v), 2) if v else 0.0 for k, v in all_lora_scores.items()}
+    base_avg = {k: round(sum(v) / len(v), 2) if v else 0.0 for k, v in all_base_scores.items()}
+
+    logger.info("  LoRA 均分: %s", json.dumps(lora_avg, ensure_ascii=False))
+    logger.info("  Base 均分: %s", json.dumps(base_avg, ensure_ascii=False))
+
+    return {
+        "enabled": True,
+        "model": config.EVAL_LLM_JUDGE_MODEL,
+        "endpoint": config.EVAL_LLM_JUDGE_ENDPOINT,
+        "num_samples": n_samples,
+        "lora_scores": lora_avg,
+        "base_scores": base_avg,
+        "details": details,
+    }
+
+
+# ============================================================
+# 5. 报告生成
 # ============================================================
 def generate_report(
     config: Config,
@@ -290,6 +503,7 @@ def generate_report(
     rouge_results: dict,
     base_samples: list,
     lora_samples: list,
+    llm_judge_results: dict = None,
 ) -> str:
     """生成 Markdown 格式的评测报告字符串。"""
     now = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -321,6 +535,68 @@ def generate_report(
 | 📝 参考答案 | {ref_short} |
 | 🔴 Base 模型 | {base_short} |
 | 🟢 LoRA 模型 | {lora_short} |
+
+---
+
+"""
+
+    # ---- LLM-as-Judge 评估结果 ----
+    llm_judge_section = ""
+    if llm_judge_results and llm_judge_results.get("enabled"):
+        jr = llm_judge_results
+        criteria_names = list(_JUDGE_CRITERIA.keys())
+        # 综合均分对比表
+        header = "| 维度 | Base | LoRA | Δ |\n|------|------|------|-----|\n"
+        rows = ""
+        for k in criteria_names:
+            b = jr.get("base_scores", {}).get(k, "-")
+            l = jr.get("lora_scores", {}).get(k, "-")
+            if isinstance(b, (int, float)) and isinstance(l, (int, float)):
+                delta = l - b
+                delta_str = f"+{delta:.2f}" if delta > 0 else f"{delta:.2f}"
+            else:
+                delta_str = "-"
+            rows += f"| {k} | {b} | {l} | {delta_str} |\n"
+
+        # 逐条详情
+        detail_blocks = ""
+        for i, d in enumerate(jr.get("details", [])):
+            lora_comment = d.get("lora_comment", "")
+            base_comment = d.get("base_comment", "")
+            detail_blocks += f"""### Judge 样本 {i + 1}
+
+**问题**: {d["instruction"]}
+
+| 维度 | Base | LoRA |
+|------|------|------|
+"""
+            for k in criteria_names:
+                bs = d.get("base_scores", {}).get(k, "-")
+                ls = d.get("lora_scores", {}).get(k, "-")
+                detail_blocks += f"| {k} | {bs} | {ls} |\n"
+            detail_blocks += f"""
+> 🔴 **Base 点评**: {base_comment}
+
+> 🟢 **LoRA 点评**: {lora_comment}
+
+---
+"""
+
+        llm_judge_section = f"""## 4. LLM-as-Judge 质量评估
+
+> 裁判模型：{jr.get("model", "N/A")}
+> 评估样本数：{jr.get("num_samples", 0)}
+> 评分维度：准确性、相关性、完整性、整体质量（1-5 分）
+
+### 综合均分对比
+
+{header}{rows}
+
+> **Δ (LoRA - Base)**: 正值为提升，负值为退化。
+
+### 逐条详细评分
+
+{detail_blocks}
 
 ---
 
@@ -488,8 +764,11 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
         lora_model, tokenizer, config, eval_samples, "LoRA", n_show=5
     )
 
+    # ---- LLM-as-Judge 评估 ----
+    llm_judge_results = evaluate_with_llm_judge(config, base_gen_samples, lora_gen_samples)
+
     # ---- 生成报告 ----
-    report = generate_report(config, ppl_results, rouge_results, base_gen_samples, lora_gen_samples)
+    report = generate_report(config, ppl_results, rouge_results, base_gen_samples, lora_gen_samples, llm_judge_results)
 
     report_path = Path(config.EVAL_REPORT_PATH)
     report_path.write_text(report, encoding="utf-8")
@@ -508,6 +787,7 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
              "base": s["generated"][:200], "lora": l["generated"][:200]}
             for s, l in zip(base_gen_samples, lora_gen_samples)
         ],
+        "llm_judge": llm_judge_results,
     }
     json_path = Path(config.EVAL_JSON_PATH)
     json_path.write_text(

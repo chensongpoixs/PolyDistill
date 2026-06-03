@@ -85,6 +85,12 @@ class Config:
     EVAL_TEMPERATURE: float = 0.1
     EVAL_REPORT_PATH: str = "./eval_report.md"
     EVAL_JSON_PATH: str = "./eval_results.json"
+    # ---- LLM-as-Judge（大模型打分评估） ----
+    EVAL_LLM_JUDGE_ENABLED: bool = False
+    EVAL_LLM_JUDGE_ENDPOINT: str = "http://localhost:8000/v1/chat/completions"
+    EVAL_LLM_JUDGE_MODEL: str = "gpt-4"
+    EVAL_LLM_JUDGE_API_KEY: str = ""
+    EVAL_LLM_JUDGE_MAX_SAMPLES: int = 10
 
     def __init__(self, **kwargs):
         """用关键字参数覆盖任意默认值。
@@ -152,6 +158,12 @@ _FIELD_MAP = {
     "eval.temperature": "EVAL_TEMPERATURE",
     "eval.report_path": "EVAL_REPORT_PATH",
     "eval.json_path": "EVAL_JSON_PATH",
+    # ---- LLM-as-Judge ----
+    "eval.llm_judge.enabled": "EVAL_LLM_JUDGE_ENABLED",
+    "eval.llm_judge.endpoint": "EVAL_LLM_JUDGE_ENDPOINT",
+    "eval.llm_judge.model": "EVAL_LLM_JUDGE_MODEL",
+    "eval.llm_judge.api_key": "EVAL_LLM_JUDGE_API_KEY",
+    "eval.llm_judge.max_samples": "EVAL_LLM_JUDGE_MAX_SAMPLES",
 }
 
 

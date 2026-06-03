@@ -248,7 +248,7 @@ training:
   #   10000 条→ 10
   #
   # 配合 early_stopping_patience 自动早停，实际 epoch 通常远小于设定值。
-  num_train_epochs: 10
+  num_train_epochs: 300
 
 # ============================================================
 # 7. 正则化

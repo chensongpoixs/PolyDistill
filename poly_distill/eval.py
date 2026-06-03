@@ -111,9 +111,10 @@ def evaluate_perplexity(
     model.eval()
     total_loss = 0.0
     total_tokens = 0
+    n = len(samples)
 
     with torch.no_grad():
-        for example in samples:
+        for i, example in enumerate(samples):
             # 构造与训练一致的对话格式（兼容 JSON 和 Parquet 两种格式）
             messages = _build_messages(example, config)
             text = tokenizer.apply_chat_template(
@@ -127,6 +128,11 @@ def evaluate_perplexity(
 
             total_loss += loss.item() * inputs["input_ids"].size(1)
             total_tokens += inputs["input_ids"].size(1)
+
+            # 进度（每 10 条或最后一条打印）
+            if (i + 1) % 10 == 0 or i == n - 1:
+                print(f"\r  [{label}] PPL: {i+1}/{n}", end="", flush=True)
+        print("", flush=True)  # 换行
 
     avg_loss = total_loss / total_tokens if total_tokens > 0 else float("inf")
     avg_ppl = torch.exp(torch.tensor(avg_loss)).item()
@@ -200,8 +206,9 @@ def evaluate_rouge(
     """
     model.eval()
     scores = []
+    n = len(samples)
 
-    for example in samples:
+    for i, example in enumerate(samples):
         # 生成
         question = _get_question(example)
         messages = [
@@ -229,6 +236,10 @@ def evaluate_rouge(
         reference = _get_reference(example)
         _, _, f1 = rouge_l_score(reference, generated)
         scores.append(f1)
+
+        # 进度
+        print(f"\r  [{label}] ROUGE: {i+1}/{n}", end="", flush=True)
+    print("", flush=True)  # 换行
 
     avg_f1 = sum(scores) / len(scores) if scores else 0.0
     logger.info("  [%s] ROUGE-L F1=%.4f  (samples=%d)", label, avg_f1, len(scores))
@@ -258,7 +269,7 @@ def collect_generation_samples(
     results = []
     show_samples = samples[:n_show]
 
-    for example in show_samples:
+    for i, example in enumerate(show_samples):
         question = _get_question(example)
         messages = [
             {"role": "system", "content": config.SYSTEM_PROMPT},
@@ -286,6 +297,8 @@ def collect_generation_samples(
             "reference": _get_reference(example),
             "generated": generated,
         })
+        print(f"\r  [{label}] Gen: {i+1}/{n_show}", end="", flush=True)
+    print("", flush=True)  # 换行
 
     return results
 
@@ -359,14 +372,23 @@ def _call_llm_judge(
             data = json.loads(resp.read().decode("utf-8"))
         content = data["choices"][0]["message"]["content"].strip()
 
-        # 尝试提取 JSON（模型可能在 JSON 前后加了说明文字）
-        # 找第一个 { 和最后一个 }
+        # 去除 markdown 代码块标记（```json ... ```）
+        if content.startswith("```"):
+            # 去掉开头的 ```json 或 ```
+            first_nl = content.find("\n")
+            if first_nl != -1:
+                content = content[first_nl + 1:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+
+        # 尝试提取 JSON（找第一个 { 和最后一个 }）
         start = content.find("{")
         end = content.rfind("}")
         if start != -1 and end != -1 and start < end:
             return json.loads(content[start:end + 1])
         else:
-            logger.warning("LLM Judge 返回非 JSON 格式: %s...", content[:200])
+            logger.warning("LLM Judge 返回非 JSON 格式:\n%s", content)
             return {"error": "non_json_response", "raw": content[:500]}
     except urllib.error.HTTPError as e:
         logger.error("LLM Judge HTTP %d: %s", e.code, e.read().decode("utf-8", errors="replace")[:500])
@@ -405,19 +427,19 @@ def evaluate_with_llm_judge(
         }
     """
     if not config.EVAL_LLM_JUDGE_ENABLED:
+        logger.info(">>> LLM-as-Judge: 未启用（设置 eval.llm_judge.enabled=true 开启）")
         return {"enabled": False}
 
     # API Key 优先级：config 值 > 环境变量
     api_key = config.EVAL_LLM_JUDGE_API_KEY or os.environ.get("LLM_JUDGE_API_KEY", "")
     if not api_key:
-        logger.warning("LLM Judge 已启用但未配置 api_key，跳过")
+        logger.warning(">>> LLM-as-Judge: 已启用但未配置 api_key，跳过")
         return {"enabled": False, "error": "no_api_key"}
 
-    logger.info("=" * 60)
-    logger.info("  LLM-as-Judge 质量评估")
+    logger.info(">>> LLM-as-Judge: 开始质量评估")
     logger.info("  Endpoint: %s", config.EVAL_LLM_JUDGE_ENDPOINT)
     logger.info("  Model:    %s", config.EVAL_LLM_JUDGE_MODEL)
-    logger.info("=" * 60)
+    logger.info("  Samples:  %d (max)", config.EVAL_LLM_JUDGE_MAX_SAMPLES)
 
     n_samples = min(config.EVAL_LLM_JUDGE_MAX_SAMPLES, len(lora_samples))
     samples_to_score = lora_samples[:n_samples]
@@ -436,7 +458,7 @@ def evaluate_with_llm_judge(
         lora_gen = sample["generated"]
         base_gen = base_map.get(question, "")
 
-        logger.info("  [%d/%d] 评估: %s...", i + 1, n_samples, question[:60])
+        logger.info("  [%d/%d] 评估: %s", i + 1, n_samples, question)
 
         # 评估 LoRA 模型
         prompt_lora = _build_judge_prompt(question, reference, lora_gen)
@@ -644,20 +666,20 @@ F1 越高，生成结果越接近参考答案。
 以下对比 Base 模型与 LoRA 模型对相同问题的回答（前 5 条）。
 
 {sample_blocks}
-
-## 4. 结论与建议
+{llm_judge_section}## 5. 结论与建议
 
 | 指标 | 判断标准 | 是否合格 |
 |------|---------|---------|
 | PPL 下降 | LoRA PPL < Base PPL | 待填充 |
 | ROUGE-L > 0.2 | 生成与参考答案有实质重叠 | 待填充 |
 | 过拟合检测 | PPL 未接近 1.0 | 待填充 |
+| LLM-Judge | 4 维度均分 > 3.0 | 待填充 |
 
 > **下一步建议**:
 > 1. 若 ROUGE-L 过低而 PPL 正常 → 模型学到了风格但未学到内容 → 增加 epoch 或降低 lr
 > 2. 若 PPL 接近 1.0 → 严重过拟合 → 降低 epoch、增大 dropout、减少 LoRA rank
 > 3. 若 PPL 不降 → 学习率过低或数据格式有误 → 检查 chat_template
-> 4. 推荐引入 LLM-as-Judge（GPT-4/Claude）做多维度打分，替代纯 ROUGE
+> 4. 若 LLM-Judge 评分低 → 数据质量或蒸馏策略需改进，检查 teacher 回答与 student 能力匹配度
 
 ---
 

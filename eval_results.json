@@ -1,29 +1,29 @@
 {
-  "timestamp": "2026-06-03 11:53:35",
+  "timestamp": "2026-06-03 18:31:18",
   "model_id": "Qwen/Qwen3-0.6B",
   "lora_output": "./lora_sft_ai_infra_audio_video_output",
   "eval_num_samples": 50,
   "perplexity": [
     {
       "label": "Base",
-      "avg_ppl": 52.04,
-      "avg_loss": 3.9521
+      "avg_ppl": 49.73,
+      "avg_loss": 3.9067
     },
     {
       "label": "LoRA",
-      "avg_ppl": 5.35,
-      "avg_loss": 1.6767
+      "avg_ppl": 18.25,
+      "avg_loss": 2.9042
     }
   ],
   "rouge_l": [
     {
       "label": "Base",
-      "rouge_l_f1": 0.0789,
+      "rouge_l_f1": 0.0779,
       "num_samples": 50
     },
     {
       "label": "LoRA",
-      "rouge_l_f1": 0.1446,
+      "rouge_l_f1": 0.1453,
       "num_samples": 50
     }
   ],
@@ -31,32 +31,152 @@
     {
       "instruction": "如何用CNN实现视频的实时美颜和滤镜？需要什么样的网络结构？",
       "reference": "移动端视频美颜CNN采用轻量U-Net结构，输入为单帧和人脸分割掩码，输出为美化后的帧。通过GAN损失让皮肤变光滑，感知损失保持五官清晰。使用MNN或NCNN部署，结合GPU Shader进行磨皮融合，可在手机上达到30fps以上。",
-      "base": "system\nYou are a helpful assistant.\nuser\n如何用CNN实现视频的实时美颜和滤镜？需要什么样的网络结构？\nassistant\n<think>\n好的，用户问的是如何用CNN实现视频的实时美颜和滤镜，需要什么样的网络结构。首先，我得先理解用户的需求。美颜和滤镜通常需要处理视频中的面部特征，比如肤色、眼睛、鼻子等，同时还要保持视频的流畅和实时性。用户可能希望得到一个",
-      "lora": "system\nYou are a helpful assistant.\nuser\n如何用CNN实现视频的实时美颜和滤镜？需要什么样的网络结构？\nassistant\n<think>\n\n</think>\n\n### 面试官目的\n视频生成与编辑中的CNN应用。\n### 回答思路\n使用U-Net或残差网络作为基础，然后添加GAN或GAN-Discrete作为生成器，同时使用另一个CNN作为鉴别器，或使用Po"
+      "base": "system\nYou are a helpful assistant.\nuser\n如何用CNN实现视频的实时美颜和滤镜？需要什么样的网络结构？\nassistant\n<think>\n嗯，用户问的是如何用CNN实现视频的实时美颜和滤镜，需要什么样的网络结构。首先，我得理解用户的需求。他们可能是在开发视频处理应用，想用深度学习来美化视频内容，比如滤镜效果。用户可能对CNN的结构不太熟悉，所以需要详细解释",
+      "lora": "system\nYou are a helpful assistant.\nuser\n如何用CNN实现视频的实时美颜和滤镜？需要什么样的网络结构？\nassistant\n<think>\n### 面试官目的\n视频处理的轻量级CNN。\n### 回答思路\n使用轻量CNN（如ResNet或MobileNet）作为基础，加上轻量级的滤镜和美颜模块。\n### 思考过程\n美颜通常需要对人脸进行锐化、对比度增强、去噪等"
     },
     {
       "instruction": "解释一下SmoothQuant量化的核心思想，与AWQ的主要区别是什么？",
       "reference": "SmoothQuant：W8A8，适用于需要极致加速（如INT8 gemm）的场景，但需要校准激活异常值。AWQ：W4A16，更注重权重压缩而不量化激活，在vLLM中应用广泛。我们选择AWQ因为vLLM对W4A16支持成熟，精度保持更好。",
       "base": "system\nYou are a helpful assistant.\nuser\n解释一下SmoothQuant量化的核心思想，与AWQ的主要区别是什么？\nassistant\n<think>\n嗯，用户问的是SmoothQuant量化的核心思想和与AWQ的区别。首先，我需要回忆一下这两个概念的定义。SmoothQuant应该是指一种基于梯度的量化方法，而AWQ可能是指另一种量化方法，比如基于梯度的量",
-      "lora": "system\nYou are a helpful assistant.\nuser\n解释一下SmoothQuant量化的核心思想，与AWQ的主要区别是什么？\nassistant\n<think>\n\n</think>\n\n### 面试官目的\n深入量化范式理解。\n\n### 回答思路\nSmoothQuant通过统计拟合找到量化参数，AWQ是更直接的量化方案。SmoothQuant对激活和权重使用量化器，保留精"
+      "lora": "system\nYou are a helpful assistant.\nuser\n解释一下SmoothQuant量化的核心思想，与AWQ的主要区别是什么？\nassistant\n<think>\n### 面试官目的\n量化原理。\n\n### 回答思路\nSmoothQuant在量化前对整数数据进行线性插值，保持精度；AWQ使用可学习的线性映射，量化后精度下降。\n\n### 思考过程\nAWQ量化后精度下降，但可"
     },
     {
       "instruction": "你提到的“自研P2P中转服务器”和标准TURN服务器有什么区别？为什么选择自研？",
       "reference": "自研中转服务完全去掉了STUN协商和权限机制，会话建立由信令服务控制，中继服务仅需根据信令指令建立一对一通道，监听端口接收客户端TCP连接或UDP包，并互相转发。由于不引入TURN协议，减少了编解码开销，延迟降低约5ms。同时可以根据业务需要灵活插入限流、监控等功能。缺点是缺乏标准化，无法被第三方WebRTC客户端直接使用。在我们的闭环生态中，这是最优选择。",
-      "base": "system\nYou are a helpful assistant.\nuser\n你提到的“自研P2P中转服务器”和标准TURN服务器有什么区别？为什么选择自研？\nassistant\n<think>\n嗯，用户问的是“自研P2P中转服务器”和“标准TURN服务器”的区别，以及为什么选择自研。首先，我需要确认这两个概念的具体定义，确保自己理解正确。P2P中转服务器通常指的是在分布式网络中，将数据从源节",
-      "lora": "system\nYou are a helpful assistant.\nuser\n你提到的“自研P2P中转服务器”和标准TURN服务器有什么区别？为什么选择自研？\nassistant\n<think>\n\n</think>\n\n### 面试官目的\n评估架构选型能力，区分开源与自研。\n\n### 回答思路\n标准TURN使用NATNAT转换，自研无需配置，性能可定制，支持QoS。\n\n### 思考过程\nTURN"
+      "base": "system\nYou are a helpful assistant.\nuser\n你提到的“自研P2P中转服务器”和标准TURN服务器有什么区别？为什么选择自研？\nassistant\n<think>\n嗯，用户问的是“自研P2P中转服务器”和“标准TURN服务器”的区别，以及为什么选择自研。首先，我需要理解这两个概念的具体定义和应用场景。\n\n自研P2P中转服务器应该是指自己开发的，而不是依赖第三方的",
+      "lora": "system\nYou are a helpful assistant.\nuser\n你提到的“自研P2P中转服务器”和标准TURN服务器有什么区别？为什么选择自研？\nassistant\n<think>\n### 面试官目的\n考察对中转服务器架构的理解，以及自主化部署的必要性。\n\n### 回答思路\n说明标准TURN服务器的局限性（如带宽、稳定性、扩展性），自研服务器可灵活配置、自研协议、自研监控。\n\n#"
     },
     {
       "instruction": "什么是大模型中的提示压缩（Prompt Compression）中的LLMLingua？如何利用小模型压缩提示？",
       "reference": "LLMLingua利用轻量语言模型计算长提示中各token的困惑度，保留高困惑度（信息量大）的token，丢弃冗余token，实现可控比例的提示压缩。压缩后的短提示送入大模型，在几乎不损失性能的情况下大幅节省推理成本。",
-      "base": "system\nYou are a helpful assistant.\nuser\n什么是大模型中的提示压缩（Prompt Compression）中的LLMLingua？如何利用小模型压缩提示？\nassistant\n<think>\n好的，用户问的是大模型中的提示压缩（Prompt Compression）中的LLM中的“LLM”具体指的是什么，以及如何利用小模型压缩提示。首先，我需要确认用户的问题",
-      "lora": "system\nYou are a helpful assistant.\nuser\n什么是大模型中的提示压缩（Prompt Compression）中的LLMLingua？如何利用小模型压缩提示？\nassistant\n<think>\n\n</think>\n\n### 面试官目的\n了解提示工程与小模型交互。\n### 回答思路\nLLMLingua使用一个小型语言模型（如GPT-2）对用户输入的提示进行编码，"
+      "base": "system\nYou are a helpful assistant.\nuser\n什么是大模型中的提示压缩（Prompt Compression）中的LLMLingua？如何利用小模型压缩提示？\nassistant\n<think>\n嗯，用户问的是大模型中的提示压缩（Prompt Compression）中的LLM中的具体含义，以及如何利用小模型压缩提示。首先，我需要确认用户的问题是否正确。提示压缩",
+      "lora": "system\nYou are a helpful assistant.\nuser\n什么是大模型中的提示压缩（Prompt Compression）中的LLMLingua？如何利用小模型压缩提示？\nassistant\n<think>\n### 面试官目的\n提示压缩技术。\n### 回答思路\nLLMLingua将长提示拆分为多个小提示，每个小提示由一个轻量模型（如LLaMA-7B）生成，然后将这些小提示拼"
     },
     {
       "instruction": "在行人重识别中，如何解决跨视角的“外观变异”问题？多尺度全局-局部特征融合网络是如何设计的？",
       "reference": "行人重识别网络（如PCB）将特征图水平切分，每块做独立分类损失，使得模型学到视角变化下稳定的局部细节（如背包、鞋子），显著提升跨摄像头匹配精度。",
-      "base": "system\nYou are a helpful assistant.\nuser\n在行人重识别中，如何解决跨视角的“外观变异”问题？多尺度全局-局部特征融合网络是如何设计的？\nassistant\n<think>\n好的，用户问的是在行人重识别中如何解决跨视角的“外观变异”问题，以及多尺度全局-局部特征融合网络的设计。我需要先理解这两个问题的具体内容。\n\n首先，跨视角的外观变异，可能指的是在不同视角下",
-      "lora": "system\nYou are a helpful assistant.\nuser\n在行人重识别中，如何解决跨视角的“外观变异”问题？多尺度全局-局部特征融合网络是如何设计的？\nassistant\n<think>\n\n</think>\n\n### 面试官目的\n跨视角鲁棒。\n### 回答思路\n全局特征 + 局部特征拼接或权值分配。\n### 思考过程\n不同相机角度下，面孔可能缩放、旋转、抖动。特征融合网络（"
+      "base": "system\nYou are a helpful assistant.\nuser\n在行人重识别中，如何解决跨视角的“外观变异”问题？多尺度全局-局部特征融合网络是如何设计的？\nassistant\n<think>\n好的，用户问的是在行人重识别中如何解决跨视角的“外观变异”问题，以及多尺度全局-局部特征融合网络的设计。我需要先理解这两个问题的具体内容。\n\n首先，跨视角的外观变异，可能是指在不同视角下，",
+      "lora": "system\nYou are a helpful assistant.\nuser\n在行人重识别中，如何解决跨视角的“外观变异”问题？多尺度全局-局部特征融合网络是如何设计的？\nassistant\n<think>\n### 面试官目的\n多模态特征融合。\n### 回答思路\n使用全局特征池和局部特征融合。\n### 思考过程\n行人特征在不同视角下分布不同。网络先提取全局特征池，再通过局部特征融合网络将局部特"
     }
-  ]
+  ],
+  "llm_judge": {
+    "enabled": true,
+    "model": "gemma-4-31B-it-Q4_0",
+    "endpoint": "http://221.10.121.80:20002/v1/chat/completions",
+    "num_samples": 5,
+    "lora_scores": {
+      "accuracy": 0.0,
+      "relevance": 0.0,
+      "completeness": 0.0,
+      "overall": 0.0
+    },
+    "base_scores": {
+      "accuracy": 2.0,
+      "relevance": 2.75,
+      "completeness": 1.0,
+      "overall": 1.0
+    },
+    "details": [
+      {
+        "instruction": "如何用CNN实现视频的实时美颜和滤镜？需要什么样的网络结构？",
+        "reference": "移动端视频美颜CNN采用轻量U-Net结构，输入为单帧和人脸分割掩码，输出为美化后的帧。通过GAN损失让皮肤变光滑，感知损失保持五官清晰。使用MNN或NCNN部署，结合GPU Shader进行磨皮融合，可在手机上达到30fps以上。",
+        "lora_generated": "system\nYou are a helpful assistant.\nuser\n如何用CNN实现视频的实时美颜和滤镜？需要什么样的网络结构？\nassistant\n<think>\n### 面试官目的\n视频处理的轻量级CNN。\n### 回答思路\n使用轻量CNN（如ResNet或MobileNet）作为基础，加上轻量级的滤镜和美颜模块。\n### 思考过程\n美颜通常需要对人脸进行锐化、对比度增强、去噪等。可将这些操作分解为多个轻量CNN模块，如锐化网络、对比度增强网络、去噪网络等，通过轻量级卷积和归一化实现。\n</think>\n\n轻量CNN（如ResNet-18或MobileNetV2）作为基础网络",
+        "base_generated": "system\nYou are a helpful assistant.\nuser\n如何用CNN实现视频的实时美颜和滤镜？需要什么样的网络结构？\nassistant\n<think>\n嗯，用户问的是如何用CNN实现视频的实时美颜和滤镜，需要什么样的网络结构。首先，我得理解用户的需求。他们可能是在开发视频处理应用，想用深度学习来美化视频内容，比如滤镜效果。用户可能对CNN的结构不太熟悉，所以需要详细解释。\n\n首先，我应该考虑视频处理通常需要哪些步骤。实时处理意味着模型需要高效，不能有延迟。所以网络结构需要尽可能小，参数少，计算量小。然后，美颜和滤镜可能需要处理视频帧，所以可能需要将视频分割成多个帧，",
+        "lora_scores": {
+          "accuracy": null,
+          "relevance": null,
+          "completeness": null,
+          "overall": null
+        },
+        "base_scores": {
+          "accuracy": 1,
+          "relevance": 1,
+          "completeness": 1,
+          "overall": 1
+        },
+        "lora_comment": "",
+        "base_comment": "学生模型仅输出了思考过程（think block），完全没有给出最终回答，属于严重的生成失败。"
+      },
+      {
+        "instruction": "解释一下SmoothQuant量化的核心思想，与AWQ的主要区别是什么？",
+        "reference": "SmoothQuant：W8A8，适用于需要极致加速（如INT8 gemm）的场景，但需要校准激活异常值。AWQ：W4A16，更注重权重压缩而不量化激活，在vLLM中应用广泛。我们选择AWQ因为vLLM对W4A16支持成熟，精度保持更好。",
+        "lora_generated": "system\nYou are a helpful assistant.\nuser\n解释一下SmoothQuant量化的核心思想，与AWQ的主要区别是什么？\nassistant\n<think>\n### 面试官目的\n量化原理。\n\n### 回答思路\nSmoothQuant在量化前对整数数据进行线性插值，保持精度；AWQ使用可学习的线性映射，量化后精度下降。\n\n### 思考过程\nAWQ量化后精度下降，但可学习的线性映射能补偿。SmoothQuant量化前对整数进行线性插值，保持精度，但量化后精度下降。AWQ量化后精度下降，但可学习的线性映射能补偿。\n</think>\n\nAWQ量化后精度下降，但通过可学",
+        "base_generated": "system\nYou are a helpful assistant.\nuser\n解释一下SmoothQuant量化的核心思想，与AWQ的主要区别是什么？\nassistant\n<think>\n嗯，用户问的是SmoothQuant量化的核心思想和与AWQ的区别。首先，我需要回忆一下这两个概念的定义。SmoothQuant应该是指一种基于梯度的量化方法，而AWQ可能是指另一种量化方法，比如基于梯度的量化或者某种特定的量化策略。\n\n首先，SmoothQuant的核心思想可能涉及如何在保持模型精度的同时，减少计算量。比如，通过在量化过程中使用梯度下降，或者通过某种方式将高维特征映射到低维空间，从而减少",
+        "lora_scores": {
+          "accuracy": null,
+          "relevance": null,
+          "completeness": null,
+          "overall": null
+        },
+        "base_scores": {
+          "accuracy": null,
+          "relevance": null,
+          "completeness": null,
+          "overall": null
+        },
+        "lora_comment": "",
+        "base_comment": ""
+      },
+      {
+        "instruction": "你提到的“自研P2P中转服务器”和标准TURN服务器有什么区别？为什么选择自研？",
+        "reference": "自研中转服务完全去掉了STUN协商和权限机制，会话建立由信令服务控制，中继服务仅需根据信令指令建立一对一通道，监听端口接收客户端TCP连接或UDP包，并互相转发。由于不引入TURN协议，减少了编解码开销，延迟降低约5ms。同时可以根据业务需要灵活插入限流、监控等功能。缺点是缺乏标准化，无法被第三方WebRTC客户端直接使用。在我们的闭环生态中，这是最优选择。",
+        "lora_generated": "system\nYou are a helpful assistant.\nuser\n你提到的“自研P2P中转服务器”和标准TURN服务器有什么区别？为什么选择自研？\nassistant\n<think>\n### 面试官目的\n考察对中转服务器架构的理解，以及自主化部署的必要性。\n\n### 回答思路\n说明标准TURN服务器的局限性（如带宽、稳定性、扩展性），自研服务器可灵活配置、自研协议、自研监控。\n\n### 思考过程\n标准TURN服务器通常基于现有协议栈，可能无法支持自定义协议，且维护成本高。自研中转服务器可开发自己的协议栈，实现自定义的QoS、自定义的中继路由，且可集成自研的监控和日志系统，满足高",
+        "base_generated": "system\nYou are a helpful assistant.\nuser\n你提到的“自研P2P中转服务器”和标准TURN服务器有什么区别？为什么选择自研？\nassistant\n<think>\n嗯，用户问的是“自研P2P中转服务器”和“标准TURN服务器”的区别，以及为什么选择自研。首先，我需要理解这两个概念的具体定义和应用场景。\n\n自研P2P中转服务器应该是指自己开发的，而不是依赖第三方的服务器。而标准TURN服务器通常指的是基于现有技术的，比如使用现有的网络协议或服务，可能由运营商或企业维护。用户可能想知道它们在功能、性能、成本、安全性等方面的不同。\n\n接下来，用户可能没有明确说明他",
+        "lora_scores": {
+          "accuracy": null,
+          "relevance": null,
+          "completeness": null,
+          "overall": null
+        },
+        "base_scores": {
+          "accuracy": 3,
+          "relevance": 3,
+          "completeness": 1,
+          "overall": 1
+        },
+        "lora_comment": "",
+        "base_comment": "回答在输出过程中突然中断，内容不完整，且未能触及参考答案中关于协议简化和延迟降低的核心技术要点。"
+      },
+      {
+        "instruction": "什么是大模型中的提示压缩（Prompt Compression）中的LLMLingua？如何利用小模型压缩提示？",
+        "reference": "LLMLingua利用轻量语言模型计算长提示中各token的困惑度，保留高困惑度（信息量大）的token，丢弃冗余token，实现可控比例的提示压缩。压缩后的短提示送入大模型，在几乎不损失性能的情况下大幅节省推理成本。",
+        "lora_generated": "system\nYou are a helpful assistant.\nuser\n什么是大模型中的提示压缩（Prompt Compression）中的LLMLingua？如何利用小模型压缩提示？\nassistant\n<think>\n### 面试官目的\n提示压缩技术。\n### 回答思路\nLLMLingua将长提示拆分为多个小提示，每个小提示由一个轻量模型（如LLaMA-7B）生成，然后将这些小提示拼接，生成长提示。这减少了提示长度，同时保持了模型的性能。\n### 思考过程\nLLaMA-7B是轻量模型，其参数量远小于LLaMA-3B。LLMLingua将原始长提示拆分为多个小提示，每个小提示由LL",
+        "base_generated": "system\nYou are a helpful assistant.\nuser\n什么是大模型中的提示压缩（Prompt Compression）中的LLMLingua？如何利用小模型压缩提示？\nassistant\n<think>\n嗯，用户问的是大模型中的提示压缩（Prompt Compression）中的LLM中的具体含义，以及如何利用小模型压缩提示。首先，我需要确认用户的问题是否正确。提示压缩通常指的是将长文本的提示信息压缩到更小的模型中，以提高效率或减少计算资源消耗。LLM在这里可能指的是大型语言模型，也就是大模型，而用户可能混淆了LLM和LLM（可能是指其他缩写）。\n\n接下来，我需要解",
+        "lora_scores": {
+          "accuracy": null,
+          "relevance": null,
+          "completeness": null,
+          "overall": null
+        },
+        "base_scores": {
+          "accuracy": 1,
+          "relevance": 2,
+          "completeness": 1,
+          "overall": 1
+        },
+        "lora_comment": "",
+        "base_comment": "模型完全没有识别出 LLMLingua 是一个具体的提示压缩框架，将其误认为在询问通用的大模型提示压缩，且回答内容在途中截断，未能提供任何有效信息。"
+      },
+      {
+        "instruction": "在行人重识别中，如何解决跨视角的“外观变异”问题？多尺度全局-局部特征融合网络是如何设计的？",
+        "reference": "行人重识别网络（如PCB）将特征图水平切分，每块做独立分类损失，使得模型学到视角变化下稳定的局部细节（如背包、鞋子），显著提升跨摄像头匹配精度。",
+        "lora_generated": "system\nYou are a helpful assistant.\nuser\n在行人重识别中，如何解决跨视角的“外观变异”问题？多尺度全局-局部特征融合网络是如何设计的？\nassistant\n<think>\n### 面试官目的\n多模态特征融合。\n### 回答思路\n使用全局特征池和局部特征融合。\n### 思考过程\n行人特征在不同视角下分布不同。网络先提取全局特征池，再通过局部特征融合网络将局部特征与全局特征拼接，最后进行分类。\n</think>\n\n多尺度融合网络将全局特征池和局部特征融合拼接，然后通过一个全局-局部特征融合网络，将全局特征和局部特征进行拼接，再通过一个全局-局部特征融合网络，",
+        "base_generated": "system\nYou are a helpful assistant.\nuser\n在行人重识别中，如何解决跨视角的“外观变异”问题？多尺度全局-局部特征融合网络是如何设计的？\nassistant\n<think>\n好的，用户问的是在行人重识别中如何解决跨视角的“外观变异”问题，以及多尺度全局-局部特征融合网络的设计。我需要先理解这两个问题的具体内容。\n\n首先，跨视角的外观变异，可能是指在不同视角下，比如从不同角度拍摄的行人，他们的面部特征可能有变化，比如眼睛位置、嘴巴形状等。这时候需要解决这些变异带来的识别困难。常见的方法可能包括使用多视角的特征提取，或者引入对抗训练来增强模型鲁棒性。\n\n然后是",
+        "lora_scores": {
+          "accuracy": null,
+          "relevance": null,
+          "completeness": null,
+          "overall": null
+        },
+        "base_scores": {
+          "accuracy": 3,
+          "relevance": 5,
+          "completeness": 1,
+          "overall": 1
+        },
+        "lora_comment": "",
+        "base_comment": "回答在正文部分严重截断，仅写了开头的一句话，未能回答任何实质性内容，完全不可用。"
+      }
+    ]
+  }
 }

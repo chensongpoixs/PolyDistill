@@ -57,6 +57,9 @@ class Config:
     EVAL_SPLIT_RATIO: float = 0.1
     # 梯度检查点（显存不足时开启，以 ~20% 速度换 ~50% 显存节省）
     GRADIENT_CHECKPOINTING: bool = False
+    # DataLoader 优化（缓解 GPU 数据饥饿）
+    DATALOADER_NUM_WORKERS: int = 0  # 0=单进程；建议 8-16 以加速数据预处理
+    DATALOADER_PIN_MEMORY: bool = True  # 加速 CPU→GPU 数据传输
     # 日志与保存
     LOGGING_STEPS: int = 10
     SAVE_STRATEGY: str = "best"
@@ -136,6 +139,8 @@ _FIELD_MAP = {
     "training.early_stopping_threshold": "EARLY_STOPPING_THRESHOLD",
     "training.eval_split_ratio": "EVAL_SPLIT_RATIO",
     "training.gradient_checkpointing": "GRADIENT_CHECKPOINTING",
+    "training.dataloader_num_workers": "DATALOADER_NUM_WORKERS",
+    "training.dataloader_pin_memory": "DATALOADER_PIN_MEMORY",
     "training.logging_steps": "LOGGING_STEPS",
     "training.save_strategy": "SAVE_STRATEGY",
     "training.save_total_limit": "SAVE_TOTAL_LIMIT",

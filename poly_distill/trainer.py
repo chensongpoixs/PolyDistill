@@ -282,6 +282,8 @@ def build_training_args(config: Config) -> TrainingArguments:
         save_strategy=config.SAVE_STRATEGY,
         save_total_limit=config.SAVE_TOTAL_LIMIT,
         logging_steps=config.LOGGING_STEPS,
+        dataloader_num_workers=config.DATALOADER_NUM_WORKERS,
+        dataloader_pin_memory=config.DATALOADER_PIN_MEMORY,
         bf16=torch.cuda.is_available(),
         report_to="none",
         ddp_find_unused_parameters=False,

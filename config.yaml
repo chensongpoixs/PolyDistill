@@ -203,7 +203,7 @@ training:
   # 每张 GPU 的 micro batch size。
   #   0.6B BF16：per_device_batch_size=4 约占用 6-8GB 显存。
   #   1.7B BF16：per_device_batch_size=2 约占用 10-12GB 显存（GPU 充裕时可 4）。
-  per_device_batch_size: 4
+  per_device_batch_size: 2
 
   # 梯度累积步数。
   # 等效 batch = per_device_batch_size × gradient_accumulation_steps
@@ -291,6 +291,14 @@ training:
   # 梯度检查点：用 ~20% 训练速度换取 ~50% 显存节省。
   # 16GB 显卡跑 0.6B 模型强烈建议开启，否则 8×梯度累积的激活值会撑爆显存。
   gradient_checkpointing: true
+
+  # ---- DataLoader 优化（缓解 GPU 数据饥饿） ----
+  # 数据预处理子进程数。0=主进程同步加载（GPU 常等待数据）。
+  # 推荐 8-16（8+ 核 CPU 时 GPU SM 利用率可提升 30-50%）。
+  dataloader_num_workers: 8
+
+  # 锁页内存（pinned memory）。开启后 GPU DMA 异步拷贝，加速 10-20%。
+  dataloader_pin_memory: true
 
   # 控制台日志打印间隔（步数）。
   # 小数据集可设小值（如 5）实时观察，大数据集设大值（如 50）减少刷屏。

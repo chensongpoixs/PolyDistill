@@ -1,9 +1,21 @@
 # TinySage: A Multi-Teacher Distilled Small Language Model
 
-TinySage is a multi-scale SLM based on the Qwen3 family (0.6B / 1.7B). Switch by setting `model_id` in `config.yaml`.  
+TinySage is a multi-scale SLM based on the Qwen3 family (0.6B / 1.7B / 4B / 8B). Switch by setting `model_id` in `config.yaml`.  
 It was trained using **PolyDistill**, a flexible multi-teacher knowledge distillation framework 
 that orchestrates API-based teachers (GPT, Claude, Gemini) 
 and a local student model under a unified training pipeline.
+
+### Student Model Comparison
+
+| Variant | Params | Layers | hidden_size | BF16 Size | Recommended GPU | Use Case |
+|---------|--------|--------|-------------|-----------|-----------------|----------|
+| **TinySage-0.6B** | 0.6B | 28 | 1024 | ~1.2 GB | 8GB+ | Edge deployment, fast prototyping |
+| **TinySage-1.7B** | 1.7B | 28 | 2048 | ~3.4 GB | 16GB+ | Server deployment, higher quality |
+| **TinySage-4B** | 4B | 36 | 2560 | ~7.6 GB | 16GB+ | Balanced quality/speed sweet spot |
+| **TinySage-8B** | 8B | 36 | 4096 | ~16 GB | 24GB+ | Near-production quality, strong reasoning |
+
+> Training VRAM is significantly higher than BF16 model size (activations + gradients + optimizer state).
+> Estimated training peak: 0.6B~4GB / 1.7B~8GB / 4B~14GB / 8B~22GB.
 
 PolyDistill handles:
 - **Black-box distillation** from heterogeneous commercial LLMs
@@ -15,7 +27,7 @@ The result: a tiny yet capable model that inherits the collective strengths of
 three state-of-the-art teachers, deployable on edge devices with minimal footprint.
 
 **Framework**: PolyDistill (included in this repo)  
-**Model**: TinySage (0.6B / 1.7B dual-scale)
+**Model**: TinySage (0.6B / 1.7B / 4B / 8B quad-scale)
 
 ---
 

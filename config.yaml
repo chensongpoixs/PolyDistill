@@ -15,19 +15,32 @@
 # 学生模型：Hugging Face 模型 ID 或本地路径。
 # 支持 Qwen3 家族多个规格，按需切换。
 #
-# ┌─────────────────────┬──────────┬──────────┬──────────────────────────┐
-# │ 模型 ID             │ 参数量   │ BF16显存 │ 适用场景                 │
-# ├─────────────────────┼──────────┼──────────┼──────────────────────────┤
-# │ Qwen/Qwen3-0.6B     │ 0.6B     │ ~1.2 GB  │ 8GB 显卡，快速原型/端侧  │
-# │ Qwen/Qwen3-1.7B│ 1.7B     │ ~3.4 GB  │ 16GB+ 显卡，追求更高上限  │
-# └─────────────────────┴──────────┴──────────┴──────────────────────────┘
+# ┌─────────────────────┬──────────┬──────────┬──────────┬──────────┬────────────────────────────┐
+# │ 模型 ID             │ 参数量   │ 层数     │ BF16显存 │ 训练显存 │ 适用场景                   │
+# ├─────────────────────┼──────────┼──────────┼──────────┼──────────┼────────────────────────────┤
+# │ Qwen/Qwen3-0.6B     │ 0.6B     │ 28       │ ~1.2 GB  │ ~4 GB    │ 8GB 显卡，快速原型/端侧    │
+# │ Qwen/Qwen3-1.7B     │ 1.7B     │ 28       │ ~3.4 GB  │ ~8 GB    │ 16GB 显卡，追求更高质量     │
+# │ Qwen/Qwen3-4B       │ 4B       │ 36       │ ~7.6 GB  │ ~14 GB   │ 16GB+ 显卡，平衡质量与速度  │
+# │ Qwen/Qwen3-8B       │ 8B       │ 36       │ ~16 GB   │ ~22 GB   │ 24GB 显卡，接近生产级效果   │
+# └─────────────────────┴──────────┴──────────┴──────────┴──────────┴────────────────────────────┘
+#
+# 注：训练显存 = BF16模型 + LoRA + 激活值(FA) + 梯度检查点 + batch数据，实测值因配置而异。
+#     RTX 5080(16GB): 建议 0.6B/1.7B/4B(检查点开)，8B 显存不足
+#     RTX 4090(24GB): 全部可跑，8B 需开启梯度检查点
+#     RTX 3090(24GB): 全部可跑，8B 需开启梯度检查点
 #
 # 切换模型时同步调整：
 #   cache_dir          — 模型缓存路径
-#   per_device_batch   — 显存占用差异（1.7B 需减半）
+#   output_dir         — 输出目录（避免不同模型 adapter 覆盖）
+#   per_device_batch   — 按显存调整（大模型减半）
 #   num_train_epochs   — 大模型收敛更快，可适当减少 epoch
-#   target_modules     — 大模型可增加 LoRA 模块（k_proj/o_proj 等）
-model_id: "Qwen/Qwen3-0.6B"
+#   target_modules     — 大模型可增加 LoRA 模块（k_proj/o_proj/gate_proj 等）
+#   gradient_checkpointing — 4B/8B 建议强制开启
+#   lora_r             — 大模型可降秩节省显存（r=8~16）
+# model_id: "Qwen/Qwen3-0.6B"
+# model_id: "Qwen/Qwen3-1.7B"
+# model_id: "Qwen/Qwen3-4B"
+model_id: "Qwen/Qwen3-4B"
 
 # 注意力实现方式（显存/速度权衡）：
 #   "auto"                — 自动检测: FA3(Blackwell) > FA2(Ampere/Hopper) > SDPA（推荐）
@@ -35,9 +48,6 @@ model_id: "Qwen/Qwen3-0.6B"
 #   "sdpa"                — PyTorch 2.0+ 内置 SDPA（无需额外安装）
 #   "eager"               — 原生 attention（兼容性最好，显存最大）
 attn_implementation: "auto"
-
-# 备选：1.7B 大模型（取消注释并注释上行即可切换）
-# model_id: "Qwen/Qwen3-1.7B"
 
 # ============================================================
 # 2. 数据
@@ -60,19 +70,23 @@ data_dir: "./data/ai_infra_audio_video"
 # ============================================================
 # 模型下载缓存目录。
 # 首次运行从 Hugging Face 下载到此目录，之后直接读缓存。
-#   0.6B 约 1.2 GB，1.7B 约 3.4 GB。
+#   0.6B 约 1.2 GB，1.7B 约 3.4 GB，4B 约 7.6 GB，8B 约 16 GB。
 #
-# 当前默认（匹配 0.6B）：
-cache_dir: "./models/qwen3-0.6b"
-# 备选（切换 1.7B 时取消注释）：
+# 按模型切换（取消注释对应行）：
 # cache_dir: "./models/qwen3-1.7b"
+# cache_dir: "./models/qwen3-0.6b"
+cache_dir: "./models/qwen3-4b"
+# cache_dir: "./models/qwen3-8b"
 
 # LoRA adapter 输出目录。
 # 训练完成后在此保存 adapter 权重（约几 MB）和配置文件。
-# 切换模型时建议同步修改，避免不同模型的 adapter 相互覆盖：
-#   0.6B 默认：./lora_sft_ai_infra_audio_video_output
-#   1.7B 建议：./lora_sft_ai_infra_audio_video_output_1.7b
-output_dir: "./lora_sft_ai_infra_audio_video_output"
+# 切换模型时必须同步修改，避免不同模型的 adapter 相互覆盖：
+#   0.6B：./lora_sft_ai_infra_audio_video_output
+#   1.7B：./lora_sft_ai_infra_audio_video_output_1.7b
+#   4B：  ./lora_sft_ai_infra_audio_video_output_4b
+#   8B：  ./lora_sft_ai_infra_audio_video_output_8b
+# output_dir: "./lora_sft_ai_infra_audio_video_output_1.7B"
+output_dir: "./lora_sft_ai_infra_audio_video_output_4B"
 
 # ============================================================
 # 4. 知识蒸馏参数（工业级）
@@ -171,12 +185,12 @@ lora:
   #   1000 条 → r=16 （中等，推荐起步值）
   #   2000 条 → r=32 （增强表达）
   #   5000 条 → r=64 （接近全量微调效果）
-  r: 32
+  r: 16
 
   # LoRA 缩放系数。
   # 实际缩放因子 = alpha / r。通常 alpha = 2 × r。
   # alpha 越大 → LoRA 输出对原始表示的扰动越大。
-  alpha: 16
+  alpha: 32
 
   # LoRA 层的 dropout 概率。
   # 在低秩矩阵训练时随机丢弃神经元，防止过拟合。
@@ -195,29 +209,34 @@ lora:
   #   — 指令跟随能力提升显著
   #   — 需更强表达力时可追加 "k_proj", "o_proj"
   #
-  # 1.7B 大模型建议：
-  #   — 数据量 < 2000：保持 q_proj + v_proj（防过拟合）
-  #   — 数据量 ≥ 2000：追加 k_proj, o_proj（4 模块）
-  #   — 数据量 ≥ 5000：可扩展至 6 模块（+ gate_proj, up_proj）
+  # 按模型大小的 LoRA 模块建议（数据量 ≥ 2000）：
+  #   0.6B：q_proj + v_proj（~2-4M trainable，防过拟合）
+  #   1.7B：q_proj + v_proj + k_proj + o_proj（~8M trainable）
+  #   4B：  q_proj + v_proj + k_proj + o_proj（~16M trainable，也可加 gate_proj）
+  #   8B：  q_proj + v_proj + k_proj + o_proj + gate_proj + up_proj（~24M trainable）
+  #   显存紧张时优先砍 gate_proj/up_proj，保留 q_proj + v_proj 核心
   target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
-
+  #target_modules: ["q_proj", "v_proj"]
 # ============================================================
 # 6. 训练超参数
 # ============================================================
 training:
 
   # ---- 批次配置 ----
-  # 每张 GPU 的 micro batch size。
-  #   0.6B BF16：per_device_batch_size=4 约占用 6-8GB 显存。
-  #   1.7B BF16：per_device_batch_size=2 约占用 10-12GB 显存（GPU 充裕时可 4）。
-  per_device_batch_size: 2
+  # 每张 GPU 的 micro batch size。按显存选择：
+  #   0.6B BF16：per_device_batch_size=4~8（~4-8GB 显存）
+  #   1.7B BF16：per_device_batch_size=2~4（~8-12GB 显存）
+  #   4B BF16：  per_device_batch_size=1~2（~12-15GB 显存，需开梯度检查点）
+  #   8B BF16：  per_device_batch_size=1（~20-23GB 显存，必须开梯度检查点）
+  #   若显存超限，优先减少 batch_size 再开启梯度累积
+  per_device_batch_size: 1
 
   # 梯度累积步数。
   # 等效 batch = per_device_batch_size × gradient_accumulation_steps
-  #            = 2 × 6 = 12
+  #            = 2 × 12 = 24
   #
   # 小数据集用小 batch（梯度噪声有助于泛化），大数据集用大 batch（梯度更准）。
-  gradient_accumulation_steps: 6
+  gradient_accumulation_steps: 16
 
   # ---- 学习率 ----
   # LoRA 微调推荐 lr 高于全量微调（全量通常 1e-5 ~ 5e-5）。
@@ -228,7 +247,11 @@ training:
   #   1000 条 → 2e-4  （推荐起步值）
   #   2000+ 条→ 3e-4
   #   5000+ 条→ 5e-4
-  learning_rate: 3.0e-4
+  #
+  # 大模型（4B/8B）学习率建议略低：
+  #   4B：2e-4 ~ 3e-4（模型已有较好先验，无须大幅更新）
+  #   8B：1e-4 ~ 2e-4（参数量大，高 lr 易破坏预训练知识）
+  learning_rate: 2.0e-4
 
   # 学习率预热比例。
   # 训练初期 lr 从 0 线性增加到 learning_rate，预热 = warmup_ratio × total_steps 步。
@@ -254,6 +277,9 @@ training:
   #   5000 条 → 15
   #   10000 条→ 10
   #
+  # 大模型（4B/8B）收敛更快，epoch 可减少 30-50%：
+  #   4B：数据 2000 条 → 15-20 epoch；5000 条 → 8-12 epoch
+  #   8B：数据 2000 条 → 10-15 epoch；5000 条 → 5-10 epoch
   # 配合 early_stopping_patience 自动早停，实际 epoch 通常远小于设定值。
   num_train_epochs: 300
 
@@ -265,7 +291,7 @@ training:
   # 小数据集用大值（强正则化），大数据集用小值。
   #
   # 推荐：100 条→0.05，500 条→0.02，1000+ 条→0.01
-  weight_decay: 0.01
+  weight_decay: 0.05
 
   # ---- 梯度裁剪 ----
   # 限制梯度的最大 L2 范数，防止单步更新过大。
@@ -296,16 +322,34 @@ training:
 
   # ---- 日志与保存 ----
   # 梯度检查点：用 ~20% 训练速度换取 ~50% 显存节省。
-  # 16GB 显卡跑 0.6B 模型强烈建议开启，否则 8×梯度累积的激活值会撑爆显存。
+  # 0.6B/1.7B：可选（16GB 显卡足够存放激活值）
+  # 4B/8B：   必须开启（16GB 显卡不开 GC 无法训练 4B；24GB 不开 GC 无法训练 8B）
+  #            推荐 24GB 显卡跑 8B 时开启，否则 batch=1 也会 OOM
   gradient_checkpointing: true
 
   # ---- DataLoader 优化（缓解 GPU 数据饥饿） ----
   # 数据预处理子进程数。0=主进程同步加载（GPU 常等待数据）。
   # 推荐 8-16（8+ 核 CPU 时 GPU SM 利用率可提升 30-50%）。
-  dataloader_num_workers: 8
+  dataloader_num_workers: 2
 
   # 锁页内存（pinned memory）。开启后 GPU DMA 异步拷贝，加速 10-20%。
   dataloader_pin_memory: true
+
+  # 每个 worker 预取 batch 数。worker 在 GPU 计算时异步准备下一批数据。
+  # 默认 2，设为 4 可进一步缓解 GPU 数据饥饿（增加少量 CPU 内存占用）。
+  dataloader_prefetch_factor: 4
+
+  # ---- 张量存储精度（减少 CPU→GPU 传输量） ----
+  # 软标签蒸馏数据存储 dtype（未来 logit 蒸馏功能）。
+  #   "float16"  — 半精度，传输量减半，数值精度略降（推荐）
+  #   "bfloat16" — BF16，范围同 FP32，需 GPU SM≥80
+  #   "float32"  — 全精度，兼容性最好但传输量大
+  storage_logit_dtype: "float16"
+
+  # input_ids / labels 存储 dtype。
+  #   "int32"  — 4 bytes，词表 < 2^31 足够（推荐，传输量减半）
+  #   "int64"  — 8 bytes，HuggingFace 默认
+  storage_token_dtype: "int32"
 
   # 控制台日志打印间隔（步数）。
   # 小数据集可设小值（如 5）实时观察，大数据集设大值（如 50）减少刷屏。
@@ -496,4 +540,49 @@ eval:
 #     — 蒸馏温度 T=4，最大化暗知识迁移
 #     — 可开启灰盒蒸馏（distill_weight > 0，需要教师 logits）
 #     — 预期：ROUGE-L > 0.4，稳定输出高质量专业回答
-#     — 可考虑升级学生模型（Qwen3-1.7B）进一步提升上限
+#     — 可考虑升级学生模型（Qwen3-4B/8B）进一步提升上限
+#
+# ============================================================
+# 附录 C：按模型规格调参速查表
+# ============================================================
+#
+# 以下为 Qwen3 家族 4 个规格在相同数据量（~2000 条）下的推荐参数。
+# 核心原则：大模型 → 低 lr + 少 epoch + 多 LoRA 模块 + 小 batch + 必须开 GC
+#
+# ┌─────────────────┬───────────┬───────────┬───────────┬───────────┐
+# │ 参数            │ 0.6B      │ 1.7B      │ 4B        │ 8B        │
+# ├─────────────────┼───────────┼───────────┼───────────┼───────────┤
+# │ 推荐 GPU        │ 8GB+      │ 16GB+     │ 16GB+     │ 24GB+     │
+# │ per_device_batch│ 4~8       │ 2~4       │ 1~2       │ 1         │
+# │ grad_accum      │ 4~8       │ 4~8       │ 8~16      │ 16~32     │
+# │ effective_batch │ 16~64     │ 16~32     │ 16~32     │ 16~32     │
+# │ LoRA r          │ 16~32     │ 8~16      │ 8~16      │ 8         │
+# │ LoRA α          │ 32~64     │ 16~32     │ 16~32     │ 16        │
+# │ target_modules  │ q+v       │ q+v+k+o   │ q+v+k+o   │ q+v+k+o+g+u│
+# │ lr              │ 2e-4~3e-4 │ 2e-4~3e-4 │ 1e-4~2e-4 │ 1e-4~2e-4 │
+# │ epochs          │ 30~50     │ 20~30     │ 15~20     │ 10~15     │
+# │ GC (梯度检查点)  │ 可选      │ 可选      │ 必须      │ 必须      │
+# │ VRAM (训练峰值)  │ ~4 GB     │ ~8 GB     │ ~14 GB    │ ~22 GB    │
+# │ SM 利用率上限   │ 40-60%    │ 50-70%    │ 60-80%    │ 70-90%    │
+# │ 训练速度 (it/s) │ ~1.7      │ ~0.9      │ ~0.4      │ ~0.2      │
+# │ 可训练参数       │ ~2M       │ ~8M       │ ~16M      │ ~24M      │
+# │ 输出 adapter 大小│ ~8 MB     │ ~32 MB    │ ~64 MB    │ ~96 MB    │
+# └─────────────────┴───────────┴───────────┴───────────┴───────────┘
+#
+# 4B 推荐配置（2000 条数据，16GB 显卡）：
+#   model_id: "Qwen/Qwen3-4B"
+#   cache_dir: "./models/qwen3-4b"
+#   output_dir: "./lora_sft_ai_infra_audio_video_output_4b"
+#   lora: {r: 16, alpha: 32, dropout: 0.05, target_modules: [q_proj, v_proj, k_proj, o_proj]}
+#   training: {per_device_batch_size: 1, gradient_accumulation_steps: 16,
+#              learning_rate: 2.0e-4, num_train_epochs: 20,
+#              gradient_checkpointing: true, warmup_ratio: 0.05}
+#
+# 8B 推荐配置（2000 条数据，24GB 显卡）：
+#   model_id: "Qwen/Qwen3-8B"
+#   cache_dir: "./models/qwen3-8b"
+#   output_dir: "./lora_sft_ai_infra_audio_video_output_8b"
+#   lora: {r: 8, alpha: 16, dropout: 0.1, target_modules: [q_proj, v_proj, k_proj, o_proj, gate_proj, up_proj]}
+#   training: {per_device_batch_size: 1, gradient_accumulation_steps: 32,
+#              learning_rate: 1.5e-4, num_train_epochs: 15,
+#              gradient_checkpointing: true, warmup_ratio: 0.05}

@@ -1,0 +1,53 @@
+<svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">
+  <title>GPU 训练每步时间分布 (1.77s per step)</title>
+  <!-- 外环背景 -->
+  <circle cx="200" cy="170" r="140" fill="none" stroke="#e0e0e0" stroke-width="42"/>
+
+  <!-- 环形图各段 (从12点顺时针) -->
+  <!-- DataLoader IPC 45% = 162° -->
+  <circle cx="200" cy="170" r="140" fill="none" stroke="#E53E3E" stroke-width="42"
+          stroke-dasharray="395.8 483.8" stroke-dashoffset="0" transform="rotate(-90 200 170)"/>
+  <!-- CPU tokenizer/collator 23% = 82.8° -->
+  <circle cx="200" cy="170" r="140" fill="none" stroke="#DD6B20" stroke-width="42"
+          stroke-dasharray="202.3 677.3" stroke-dashoffset="-395.8" transform="rotate(-90 200 170)"/>
+  <!-- kernel launch 20% = 72° -->
+  <circle cx="200" cy="170" r="140" fill="none" stroke="#D69E2E" stroke-width="42"
+          stroke-dasharray="175.9 703.7" stroke-dashoffset="-598.1" transform="rotate(-90 200 170)"/>
+  <!-- 其他 overhead 15% = 54° -->
+  <circle cx="200" cy="170" r="140" fill="none" stroke="#9CA3AF" stroke-width="42"
+          stroke-dasharray="131.9 747.7" stroke-dashoffset="-774.0" transform="rotate(-90 200 170)"/>
+  <!-- GPU compute 0.7% -->
+  <circle cx="200" cy="170" r="140" fill="none" stroke="#38A169" stroke-width="42"
+          stroke-dasharray="6.2 873.4" stroke-dashoffset="-905.9" transform="rotate(-90 200 170)"/>
+
+  <text x="200" y="165" text-anchor="middle" font-size="28" font-weight="700" fill="#2D3748">1.77s</text>
+  <text x="200" y="190" text-anchor="middle" font-size="12" fill="#718096">每步耗时</text>
+
+  <!-- 图例 -->
+  <g transform="translate(380, 60)">
+    <rect x="0" y="0" width="14" height="14" rx="3" fill="#E53E3E"/>
+    <text x="20" y="11" font-size="13" fill="#2D3748">DataLoader IPC</text>
+    <text x="300" y="11" font-size="13" fill="#718096" text-anchor="end">800ms 45%</text>
+
+    <rect x="0" y="28" width="14" height="14" rx="3" fill="#DD6B20"/>
+    <text x="20" y="39" font-size="13" fill="#2D3748">CPU tokenizer/collator</text>
+    <text x="300" y="39" font-size="13" fill="#718096" text-anchor="end">400ms 23%</text>
+
+    <rect x="0" y="56" width="14" height="14" rx="3" fill="#D69E2E"/>
+    <text x="20" y="67" font-size="13" fill="#2D3748">kernel launch + sync</text>
+    <text x="300" y="67" font-size="13" fill="#718096" text-anchor="end">350ms 20%</text>
+
+    <rect x="0" y="84" width="14" height="14" rx="3" fill="#9CA3AF"/>
+    <text x="20" y="95" font-size="13" fill="#2D3748">Python/logging overhead</text>
+    <text x="300" y="95" font-size="13" fill="#718096" text-anchor="end">150ms 8%</text>
+
+    <rect x="0" y="112" width="14" height="14" rx="3" fill="#38A169"/>
+    <text x="20" y="123" font-size="13" fill="#2D3748">GPU pure compute</text>
+    <text x="300" y="123" font-size="13" fill="#718096" text-anchor="end">12ms 0.7%</text>
+
+    <!-- 分隔线 -->
+    <line x1="0" y1="142" x2="300" y2="142" stroke="#E2E8F0" stroke-width="1"/>
+    <text x="0" y="165" font-size="13" font-weight="700" fill="#E53E3E">99.3% 时间 GPU 在等待而非计算</text>
+    <text x="0" y="185" font-size="12" fill="#718096">瓶颈: CPU-GPU 数据传输 + kernel launch 延迟</text>
+  </g>
+</svg>

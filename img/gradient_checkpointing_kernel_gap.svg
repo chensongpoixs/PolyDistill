@@ -1,0 +1,87 @@
+<svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">
+  <title>梯度检查点 GPU Kernel 流对比图</title>
+  <!-- 无 GC -->
+  <text x="20" y="20" font-size="13" font-weight="700" fill="#2D3748">无梯度检查点 — 连续 kernel 流 | GPU 100% busy</text>
+
+  <rect x="20" y="32" width="680" height="28" rx="4" fill="#F0FFF4"/>
+  <rect x="22" y="34" width="58" height="24" rx="3" fill="#38A169"/>
+  <text x="51" y="50" font-size="8" fill="white" text-anchor="middle">FWD-1</text>
+  <rect x="82" y="34" width="58" height="24" rx="3" fill="#38A169"/>
+  <text x="111" y="50" font-size="8" fill="white" text-anchor="middle">FWD-2</text>
+  <rect x="142" y="34" width="30" height="24" rx="3" fill="#38A169"/>
+  <text x="157" y="50" font-size="7" fill="white" text-anchor="middle">..</text>
+  <rect x="174" y="34" width="58" height="24" rx="3" fill="#38A169"/>
+  <text x="203" y="50" font-size="8" fill="white" text-anchor="middle">FWD-12</text>
+  <rect x="234" y="34" width="58" height="24" rx="3" fill="#2B6CB0"/>
+  <text x="263" y="50" font-size="8" fill="white" text-anchor="middle">BWD-12</text>
+  <rect x="294" y="34" width="30" height="24" rx="3" fill="#2B6CB0"/>
+  <text x="309" y="50" font-size="7" fill="white" text-anchor="middle">..</text>
+  <rect x="326" y="34" width="58" height="24" rx="3" fill="#2B6CB0"/>
+  <text x="355" y="50" font-size="8" fill="white" text-anchor="middle">BWD-1</text>
+
+  <!-- CPU 时间轴 -->
+  <text x="20" y="82" font-size="11" fill="#718096">CPU:</text>
+  <rect x="55" y="72" width="645" height="16" rx="3" fill="#F3F4F6"/>
+  <rect x="57" y="74" width="641" height="12" rx="2" fill="#9CA3AF" opacity="0.3"/>
+  <text x="370" y="84" font-size="9" fill="#9CA3AF" text-anchor="middle">仅少量 launch 命令，GPU 自行完成前向→反向</text>
+
+  <!-- 分割线 -->
+  <line x1="20" y1="106" x2="700" y2="106" stroke="#E2E8F0" stroke-width="1"/>
+
+  <!-- 有 GC -->
+  <text x="20" y="128" font-size="13" font-weight="700" fill="#2D3748">有梯度检查点 — kernel 流频繁打断 | GPU IDLE 间隙大量出现</text>
+
+  <rect x="20" y="142" width="680" height="28" rx="4" fill="#FFF5F5"/>
+  <rect x="22" y="144" width="58" height="24" rx="3" fill="#38A169"/>
+  <text x="51" y="160" font-size="8" fill="white" text-anchor="middle">FWD-1</text>
+  <rect x="82" y="144" width="24" height="24" rx="3" fill="#FCA5A5"/>
+  <rect x="106" y="144" width="50" height="24" rx="3" fill="#38A169"/>
+  <text x="131" y="160" font-size="8" fill="white" text-anchor="middle">FWD-2</text>
+  <rect x="158" y="144" width="24" height="24" rx="3" fill="#FCA5A5"/>
+  <rect x="182" y="144" width="30" height="24" rx="3" fill="#38A169" opacity="0.6"/>
+  <text x="197" y="160" font-size="7" fill="white" text-anchor="middle">..</text>
+  <rect x="214" y="144" width="24" height="24" rx="3" fill="#FCA5A5"/>
+  <rect x="238" y="144" width="50" height="24" rx="3" fill="#38A169"/>
+  <text x="263" y="160" font-size="8" fill="white" text-anchor="middle">FWD-12</text>
+  <rect x="290" y="144" width="24" height="24" rx="3" fill="#FCA5A5"/>
+  <rect x="314" y="144" width="50" height="24" rx="3" fill="#2B6CB0"/>
+  <text x="339" y="160" font-size="8" fill="white" text-anchor="middle">BWD-12</text>
+  <rect x="366" y="144" width="24" height="24" rx="3" fill="#FCA5A5"/>
+  <rect x="390" y="144" width="50" height="24" rx="3" fill="#2B6CB0"/>
+  <text x="415" y="160" font-size="8" fill="white" text-anchor="middle">BWD-11</text>
+  <rect x="442" y="144" width="24" height="24" rx="3" fill="#FCA5A5"/>
+  <rect x="466" y="144" width="30" height="24" rx="3" fill="#2B6CB0" opacity="0.6"/>
+  <text x="481" y="160" font-size="7" fill="white" text-anchor="middle">..</text>
+  <rect x="498" y="144" width="24" height="24" rx="3" fill="#FCA5A5"/>
+  <rect x="522" y="144" width="50" height="24" rx="3" fill="#2B6CB0"/>
+  <text x="547" y="160" font-size="8" fill="white" text-anchor="middle">BWD-1</text>
+
+  <!-- GPU IDLE 标注 -->
+  <text x="82" y="134" font-size="8" fill="#E53E3E" text-anchor="middle">IDLE</text>
+  <text x="158" y="134" font-size="8" fill="#E53E3E" text-anchor="middle">IDLE</text>
+
+  <!-- CPU 时间轴 -->
+  <text x="20" y="192" font-size="11" fill="#718096">CPU:</text>
+  <rect x="55" y="182" width="645" height="16" rx="3" fill="#F3F4F6"/>
+  <rect x="80" y="184" width="30" height="12" rx="2" fill="#DD6B20"/>
+  <text x="95" y="193" font-size="7" fill="white" text-anchor="middle">ckpt</text>
+  <rect x="156" y="184" width="30" height="12" rx="2" fill="#DD6B20"/>
+  <text x="171" y="193" font-size="7" fill="white" text-anchor="middle">ckpt</text>
+  <rect x="212" y="184" width="30" height="12" rx="2" fill="#DD6B20"/>
+  <text x="227" y="193" font-size="7" fill="white" text-anchor="middle">ckpt</text>
+  <rect x="288" y="184" width="30" height="12" rx="2" fill="#D69E2E"/>
+  <text x="303" y="193" font-size="7" fill="white" text-anchor="middle">re-FW</text>
+  <rect x="364" y="184" width="30" height="12" rx="2" fill="#D69E2E"/>
+  <text x="379" y="193" font-size="7" fill="white" text-anchor="middle">re-FW</text>
+  <rect x="440" y="184" width="30" height="12" rx="2" fill="#D69E2E"/>
+  <text x="455" y="193" font-size="7" fill="white" text-anchor="middle">re-FW</text>
+  <rect x="496" y="184" width="30" height="12" rx="2" fill="#D69E2E"/>
+  <text x="511" y="193" font-size="7" fill="white" text-anchor="middle">re-FW</text>
+
+  <text x="95" y="210" font-size="8" fill="#DD6B20" text-anchor="middle">保存 checkpoint</text>
+  <text x="303" y="210" font-size="8" fill="#D69E2E" text-anchor="middle">触发重算</text>
+
+  <text x="360" y="240" font-size="11" fill="#E53E3E" text-anchor="middle">
+    GC 每层需要 CPU 保存/恢复 checkpoint → GPU kernel 流频繁中断 → SM idle 间隙累计
+  </text>
+</svg>

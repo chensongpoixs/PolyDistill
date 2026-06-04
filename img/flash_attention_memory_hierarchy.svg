@@ -1,0 +1,95 @@
+<svg viewBox="0 0 760 420" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif">
+  <title>Flash Attention 内存层级优化原理</title>
+  <!-- 标准 Attention (左侧) -->
+  <text x="190" y="22" font-size="13" font-weight="700" fill="#E53E3E" text-anchor="middle">标准 Attention — O(L²) 显存</text>
+
+  <rect x="30" y="38" width="320" height="160" rx="6" fill="#FEF3C7" stroke="#F59E0B" stroke-width="1.5"/>
+  <text x="190" y="58" font-size="11" font-weight="600" fill="#92400E" text-anchor="middle">HBM (显存) — ~1.5 TB/s</text>
+
+  <!-- QKV 矩阵 -->
+  <rect x="55" y="68" width="80" height="12" rx="2" fill="#6366F1" opacity="0.7"/>
+  <text x="95" y="77" font-size="8" fill="white" text-anchor="middle">Q (2048×64)</text>
+  <rect x="55" y="85" width="80" height="12" rx="2" fill="#8B5CF6" opacity="0.7"/>
+  <text x="95" y="94" font-size="8" fill="white" text-anchor="middle">K (2048×64)</text>
+  <rect x="55" y="102" width="80" height="12" rx="2" fill="#A78BFA" opacity="0.7"/>
+  <text x="95" y="111" font-size="8" fill="white" text-anchor="middle">V (2048×64)</text>
+
+  <!-- attention 分数矩阵 L×L -->
+  <rect x="160" y="68" width="95" height="70" rx="3" fill="#FCA5A5" opacity="0.5" stroke="#EF4444" stroke-width="0.8"/>
+  <text x="207" y="100" font-size="8" fill="#991B1B" text-anchor="middle">Q·K^T 矩阵</text>
+  <text x="207" y="112" font-size="7" fill="#991B1B" text-anchor="middle">2048 × 2048</text>
+  <text x="207" y="128" font-size="7" fill="#991B1B" text-anchor="middle">= 16.8 MB (FP32)</text>
+
+  <rect x="55" y="140" width="80" height="12" rx="2" fill="#EC4899" opacity="0.7"/>
+  <text x="95" y="149" font-size="8" fill="white" text-anchor="middle">O (2048×64)</text>
+
+  <text x="95" y="178" font-size="8" fill="#EF4444" text-anchor="middle">中间结果全量写入 HBM</text>
+
+  <rect x="50" y="220" width="280" height="30" rx="4" fill="#FEE2E2"/>
+  <text x="190" y="239" font-size="10" fill="#991B1B" text-anchor="middle">总显存: L×L 矩阵 × 层数 ≈ 数百 MB ~ 2GB</text>
+
+  <!-- 中间箭头 -->
+  <text x="390" y="140" font-size="18" fill="#9CA3AF" text-anchor="middle">→</text>
+  <text x="390" y="160" font-size="10" fill="#9CA3AF" text-anchor="middle">IO-Aware</text>
+  <text x="390" y="174" font-size="10" fill="#9CA3AF" text-anchor="middle">优化</text>
+
+  <!-- Flash Attention (右侧) -->
+  <text x="565" y="22" font-size="13" font-weight="700" fill="#38A169" text-anchor="middle">Flash Attention — O(L) 显存</text>
+
+  <rect x="410" y="38" width="320" height="160" rx="6" fill="#FEF3C7" stroke="#F59E0B" stroke-width="1.5"/>
+  <text x="570" y="58" font-size="11" font-weight="600" fill="#92400E" text-anchor="middle">HBM (显存) — 只存 Q/K/V 输入 + 最终 O</text>
+
+  <rect x="435" y="70" width="65" height="12" rx="2" fill="#6366F1" opacity="0.7"/>
+  <text x="467" y="79" font-size="8" fill="white" text-anchor="middle">Q</text>
+  <rect x="435" y="86" width="65" height="12" rx="2" fill="#8B5CF6" opacity="0.7"/>
+  <text x="467" y="95" font-size="8" fill="white" text-anchor="middle">K</text>
+  <rect x="435" y="102" width="65" height="12" rx="2" fill="#A78BFA" opacity="0.7"/>
+  <text x="467" y="111" font-size="8" fill="white" text-anchor="middle">V</text>
+  <rect x="435" y="140" width="65" height="12" rx="2" fill="#EC4899" opacity="0.7"/>
+  <text x="467" y="149" font-size="8" fill="white" text-anchor="middle">O</text>
+
+  <!-- SRAM tile 处理 -->
+  <rect x="540" y="65" width="170" height="130" rx="6" fill="#D1FAE5" stroke="#10B981" stroke-width="1.5"/>
+  <text x="625" y="82" font-size="10" font-weight="600" fill="#047857" text-anchor="middle">SRAM (片上) ~20 TB/s</text>
+
+  <rect x="555" y="92" width="65" height="12" rx="2" fill="#6366F1" opacity="0.8"/>
+  <text x="587" y="101" font-size="7" fill="white" text-anchor="middle">Q tile (128×64)</text>
+  <rect x="630" y="92" width="65" height="12" rx="2" fill="#8B5CF6" opacity="0.8"/>
+  <text x="662" y="101" font-size="7" fill="white" text-anchor="middle">K tile (128×64)</text>
+
+  <rect x="555" y="110" width="140" height="35" rx="3" fill="#A7F3D0" stroke="#34D399" stroke-width="0.8"/>
+  <text x="625" y="124" font-size="8" fill="#047857" text-anchor="middle">Online Softmax</text>
+  <text x="625" y="137" font-size="7" fill="#047857" text-anchor="middle">(增量计算, 不存全矩阵)</text>
+
+  <rect x="555" y="150" width="65" height="12" rx="2" fill="#A78BFA" opacity="0.8"/>
+  <text x="587" y="159" font-size="7" fill="white" text-anchor="middle">V tile + PV</text>
+  <rect x="630" y="150" width="65" height="12" rx="2" fill="#EC4899" opacity="0.8"/>
+  <text x="662" y="159" font-size="7" fill="white" text-anchor="middle">写回 HBM</text>
+
+  <!-- 循环箭头 -->
+  <path d="M710,120 C740,120 740,170 710,170" fill="none" stroke="#10B981" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="738" y="148" font-size="7" fill="#047857" text-anchor="middle">t₁</text>
+  <text x="738" y="158" font-size="7" fill="#047857" text-anchor="middle">t₂</text>
+  <text x="738" y="168" font-size="7" fill="#047857" text-anchor="middle">tₙ</text>
+
+  <rect x="430" y="220" width="280" height="30" rx="4" fill="#D1FAE5"/>
+  <text x="570" y="239" font-size="10" fill="#047857" text-anchor="middle">总显存: O(L) 线性增长, 节省 40-50%</text>
+
+  <!-- 底部速度对比 -->
+  <g transform="translate(60, 270)">
+    <text x="0" y="0" font-size="12" font-weight="700" fill="#2D3748">内存带宽对比</text>
+    <text x="0" y="22" font-size="10" fill="#718096">HBM (显存)</text>
+    <rect x="80" y="14" width="180" height="12" rx="3" fill="#F59E0B"/>
+    <text x="270" y="24" font-size="9" fill="#92400E">~1.5 TB/s</text>
+    <text x="0" y="42" font-size="10" fill="#718096">SRAM (片上)</text>
+    <rect x="80" y="34" width="650" height="12" rx="3" fill="#10B981"/>
+    <text x="740" y="44" font-size="9" fill="#047857">~20 TB/s (13× faster)</text>
+    <text x="650" y="68" font-size="10" fill="#6366F1" text-anchor="end">
+      SRAM 带宽 ≈ HBM 的 13 倍 → FA 将计算移入 SRAM 大幅减少显存读写
+    </text>
+  </g>
+
+  <text x="380" y="400" font-size="11" fill="#4A5568" text-anchor="middle">
+    核心原理: 分块 (Tiling) + 在线 Softmax + 反向重算 → 中间矩阵永不出现在 HBM
+  </text>
+</svg>

@@ -11,6 +11,16 @@ import sys
 import time
 
 import torch
+
+# GPU 硬件监控（SM 利用率 + 功耗，可选）
+try:
+    import pynvml
+    pynvml.nvmlInit()
+    _NVML_AVAILABLE = True
+    _NVML_HANDLE = pynvml.nvmlDeviceGetHandleByIndex(0)
+except Exception:
+    _NVML_AVAILABLE = False
+    _NVML_HANDLE = None
 from peft import LoraConfig
 from transformers import (
     AutoModelForCausalLM,
@@ -59,13 +69,20 @@ class YOLOStyleProgressCallback(TrainerCallback):
         self._lr_history: dict[int, float] = {}  # epoch → LR，用于训练结束绘制曲线
 
     def _print_header(self):
-        header = (
-            f"\n{'Epoch':>8s}  {'gpu_mem':>8s}  "
-            f"{'train_loss':>10s}  {'val_loss':>10s}  "
-            f"{'lr':>10s}  {'samples':>8s}  {'time':>8s}"
-        )
+        if _NVML_AVAILABLE:
+            header = (
+                f"\n{'Epoch':>8s}  {'gpu_mem':>8s}  {'SM_util':>8s}  "
+                f"{'power':>7s}  {'train_loss':>10s}  {'val_loss':>10s}  "
+                f"{'lr':>10s}  {'samples':>8s}  {'time':>8s}"
+            )
+        else:
+            header = (
+                f"\n{'Epoch':>8s}  {'gpu_mem':>8s}  "
+                f"{'train_loss':>10s}  {'val_loss':>10s}  "
+                f"{'lr':>10s}  {'samples':>8s}  {'time':>8s}"
+            )
         print(header, flush=True)
-        print("-" * 78, flush=True)
+        print("-" * 94 if _NVML_AVAILABLE else "-" * 78, flush=True)
         self._header_printed = True
 
     def _get_gpu_mem(self) -> str:
@@ -75,19 +92,49 @@ class YOLOStyleProgressCallback(TrainerCallback):
             return f"{reserved:.1f}G"
         return "    N/A"
 
+    @staticmethod
+    def _get_gpu_metrics() -> tuple:
+        """查询 GPU SM 利用率和功耗（通过 NVML）。
+
+        Returns:
+            (sm_str, power_str): SM 利用率字符串和功耗字符串。
+            若 NVML 不可用，返回 ("N/A", "N/A")。
+        """
+        if not _NVML_AVAILABLE:
+            return "N/A", "N/A"
+        try:
+            util = pynvml.nvmlDeviceGetUtilizationRates(_NVML_HANDLE)
+            sm = f"{util.gpu}%"
+            try:
+                power_mw = pynvml.nvmlDeviceGetPowerUsage(_NVML_HANDLE)
+                power = f"{power_mw / 1000:.0f}W"
+            except Exception:
+                power = "N/A"
+            return sm, power
+        except Exception:
+            return "N/A", "N/A"
+
     def _format_epoch_line(self) -> str:
         epoch_str = f"{self._epoch}/{self.total_epochs}"
         gpu = self._get_gpu_mem()
+        sm_util_str, power_str = self._get_gpu_metrics()
         train = f"{self._train_loss:.4f}" if self._train_loss is not None else "      N/A"
         val = f"{self._val_loss:.4f}" if self._val_loss is not None else "      N/A"
         lr = f"{self._lr:.2e}" if self._lr is not None else "      N/A"
         samples = self.val_samples if self.val_samples > 0 else self.train_samples
         elapsed = f"{time.time() - self._epoch_start_time:.0f}s" if self._epoch_start_time else "    N/A"
-        return (
-            f"{epoch_str:>8s}  {gpu:>8s}  "
-            f"{train:>10s}  {val:>10s}  "
-            f"{lr:>10s}  {samples:>8d}  {elapsed:>8s}"
-        )
+        if _NVML_AVAILABLE:
+            return (
+                f"{epoch_str:>8s}  {gpu:>8s}  {sm_util_str:>8s}  "
+                f"{power_str:>7s}  {train:>10s}  {val:>10s}  "
+                f"{lr:>10s}  {samples:>8d}  {elapsed:>8s}"
+            )
+        else:
+            return (
+                f"{epoch_str:>8s}  {gpu:>8s}  "
+                f"{train:>10s}  {val:>10s}  "
+                f"{lr:>10s}  {samples:>8d}  {elapsed:>8s}"
+            )
 
     def _print_line(self):
         """打印当前 epoch 行，防重复。"""
@@ -152,7 +199,7 @@ class YOLOStyleProgressCallback(TrainerCallback):
         self._print_line()  # 防重复自动处理
 
     def on_train_end(self, args, state, control, **kwargs):
-        print("-" * 78, flush=True)
+        print("-" * 94 if _NVML_AVAILABLE else "-" * 78, flush=True)
         if self._best_val_loss < float("inf"):
             print(
                 f"Best metric: eval_loss = {self._best_val_loss:.4f} "
@@ -162,6 +209,26 @@ class YOLOStyleProgressCallback(TrainerCallback):
             print(f"Training complete: {self._epoch} epochs, best checkpoint saved", flush=True)
         else:
             print(f"Training complete: {self._epoch} epochs", flush=True)
+
+        # ---- GPU 硬件总结 ----
+        if _NVML_AVAILABLE:
+            try:
+                util = pynvml.nvmlDeviceGetUtilizationRates(_NVML_HANDLE)
+                power_mw = pynvml.nvmlDeviceGetPowerUsage(_NVML_HANDLE)
+                temp = pynvml.nvmlDeviceGetTemperature(
+                    _NVML_HANDLE, pynvml.NVML_TEMPERATURE_GPU
+                )
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(_NVML_HANDLE)
+                print(
+                    f"GPU status post-training: "
+                    f"SM_util={util.gpu}% | "
+                    f"power={power_mw / 1000:.0f}W | "
+                    f"temp={temp}°C | "
+                    f"mem={mem_info.used / (1024**3):.1f}/{mem_info.total / (1024**3):.1f} GB",
+                    flush=True,
+                )
+            except Exception:
+                pass
 
         # ---- 学习率下降曲线 ----
         if self._lr_history:
@@ -426,6 +493,36 @@ def load_model_and_tokenizer(config: Config) -> tuple:
         **attn_kwargs,
     ).to("cuda")
 
+    # ── 模型规模检测：参数统计 + 显存估算 ──
+    total_params = sum(p.numel() for p in model.parameters())
+    total_params_b = total_params * 2  # BF16
+    config_hidden = getattr(model.config, "hidden_size", None)
+    config_layers = getattr(model.config, "num_hidden_layers", None)
+    config_heads = getattr(model.config, "num_attention_heads", None)
+    config_kv_heads = getattr(model.config, "num_key_value_heads", None)
+    logger.info(
+        "模型规模: %.2fB params | hidden=%s | layers=%s | heads=%s(q)/%s(kv)",
+        total_params / 1e9, config_hidden, config_layers, config_heads, config_kv_heads,
+    )
+
+    # VRAM 估算（BF16 参数 + LoRA 梯度/优化器 + 激活值上限 + batch 数据）
+    _estimate_vram = total_params_b / (1024 ** 3)  # GB, 仅模型参数
+    logger.info("VRAM 估算: 模型参数 ~%.1f GB (BF16) | 训练峰值因 batch/GC 差异较大", _estimate_vram)
+
+    # 大模型警告：GC 未开启 + batch > 1 → 大概率 OOM
+    _gpu_mem_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+    if total_params > 3e9 and not config.GRADIENT_CHECKPOINTING:
+        logger.warning(
+            "⚠️  检测到 %.1fB 大模型且梯度检查点未开启！"
+            "建议开启 gradient_checkpointing: true (显存节省 ~50%%)",
+            total_params / 1e9,
+        )
+    if total_params > 6e9 and config.PER_DEVICE_BATCH_SIZE > 1:
+        logger.warning(
+            "⚠️  %.1fB 模型 per_device_batch_size=%d 可能超显存 (GPU=%.0fGB)，建议降至 1",
+            total_params / 1e9, config.PER_DEVICE_BATCH_SIZE, _gpu_mem_gb,
+        )
+
     logger.info("模型加载成功")
     return model, tokenizer
 
@@ -624,6 +721,33 @@ def train(config: Config) -> tuple:
     # ---- 5. 训练信息摘要 ----
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    # ── GPU 硬件状态（SM 利用率 / 功耗基线） ──
+    if _NVML_AVAILABLE:
+        try:
+            _power_limit_mw = pynvml.nvmlDeviceGetPowerManagementLimit(_NVML_HANDLE)
+            _power_curr_mw = pynvml.nvmlDeviceGetPowerUsage(_NVML_HANDLE)
+            _temp = pynvml.nvmlDeviceGetTemperature(_NVML_HANDLE, pynvml.NVML_TEMPERATURE_GPU)
+            _sm_count = pynvml.nvmlDeviceGetNumGpuCores(_NVML_HANDLE)
+            _max_clock = pynvml.nvmlDeviceGetMaxClockInfo(_NVML_HANDLE, pynvml.NVML_CLOCK_SM)
+            _gpu_name = pynvml.nvmlDeviceGetName(_NVML_HANDLE)
+            if isinstance(_gpu_name, bytes):
+                _gpu_name = _gpu_name.decode("utf-8")
+            logger.info(
+                "GPU 硬件状态: %s | SM=%d cores | MaxClock=%d MHz | "
+                "PowerLimit=%.0fW | IdlePower=%.0fW | Temp=%d°C",
+                _gpu_name, _sm_count, _max_clock,
+                _power_limit_mw / 1000, _power_curr_mw / 1000, _temp,
+            )
+            # SM 利用率/显存/功耗将实时显示在 YOLOv5 风格日志中
+            if _power_limit_mw / 1000 > 250:
+                logger.info(
+                    "功耗管理: PowerLimit=%.0fW > 250W，建议锁定频率以稳定功耗: "
+                    "sudo nvidia-smi -lgc 2000 && sudo nvidia-smi -pl 250",
+                    _power_limit_mw / 1000,
+                )
+        except Exception:
+            pass
     logger.info(
         "Model: %s | Params: %.1fM total, %.1fM trainable | "
         "Train: %d samples | Val: %d samples",

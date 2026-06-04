@@ -51,6 +51,21 @@ class YOLOStyleProgressCallback(TrainerCallback):
          2/30    4.2G      0.9876      0.9521   1.7e-04     1755     43s
         ...
 
+    各列数据来源:
+      train_loss — on_log() 捕获的最后一次 training loss
+      val_loss   — on_evaluate() 捕获的 eval_loss (每个 epoch 结束后更新)
+      lr         — on_log() 捕获的当前学习率
+      samples    — val_samples (有验证集时) 或 train_samples (无验证集时)
+      time       — on_epoch_begin() 到 on_epoch_end() 的 wall time
+
+    验证流程 (每个 epoch 结束后自动触发):
+      1. HF Trainer 检测 eval_strategy="epoch"
+      2. model.eval() + torch.no_grad() → 遍历 eval_dataset
+      3. 计算 eval_loss，触发 on_evaluate(metrics)
+      4. 本回调更新 self._val_loss → 下一行 YOLO 输出时显示
+      5. 如果 eval_loss 改善: 保存 checkpoint (save_strategy="best")
+      6. 如果 eval_loss 连续 patience 轮未改善: 早停 (EarlyStoppingCallback)
+
     行在 on_log 中即时打印（epoch 变化时），on_epoch_end 作为兜底。
     训练结束时输出最优指标。
     """
@@ -175,6 +190,30 @@ class YOLOStyleProgressCallback(TrainerCallback):
                 self._epoch = current
                 self._print_line()
 
+    # ═══════════════════════════════════════════════════════════════════
+    # on_evaluate: 每个 epoch 结束后 HF Trainer 自动调用
+    # ═══════════════════════════════════════════════════════════════════
+    #
+    # 调用链:
+    #   HF Trainer._inner_training_loop()
+    #     → 完成当前 epoch 所有 training steps
+    #     → 检测 eval_strategy="epoch"
+    #     → trainer.evaluate(eval_dataset)
+    #       → model.eval() 切换评估模式（关闭 dropout）
+    #       → torch.no_grad() 禁用梯度计算
+    #       → 遍历 eval_dataset 所有样本，计算 eval_loss
+    #       → 返回 metrics dict: {"eval_loss": ..., "eval_runtime": ...}
+    #     → TrainerCallback.on_evaluate(metrics)
+    #     → 本函数被调用
+    #
+    # 本函数职责:
+    #   1. 捕获 eval_loss → 下次 YOLOv5 行输出时显示在 val_loss 列
+    #   2. 跟踪 best_val_loss → 判断是否刷新历史最优
+    #   3. 记录 best_epoch → 训练结束时输出"Best metric at epoch N"
+    #
+    # HF Trainer 同步执行的动作（与本回调并列）:
+    #   - save_strategy="best" + eval_loss 改善 → 保存 checkpoint
+    #   - EarlyStoppingCallback → 检测是否触发早停
     def on_evaluate(self, args, state, control, metrics=None, **kwargs):
         if metrics is None:
             return
@@ -646,9 +685,27 @@ def build_training_args(config: Config) -> TrainingArguments:
         num_train_epochs=config.NUM_TRAIN_EPOCHS,
         weight_decay=config.WEIGHT_DECAY,
         max_grad_norm=config.MAX_GRAD_NORM,
+        # ── 验证集驱动的最优模型选取 ──
+        # load_best_model_at_end=True: 训练结束后自动从磁盘加载 eval_loss 最低的 checkpoint
+        #   不依赖最后一步的模型状态（防止过拟合和 loss 震荡）
+        # 前提: save_strategy 必须匹配 eval_strategy（如都是 "epoch"）
         load_best_model_at_end=config.LOAD_BEST_MODEL_AT_END,
+        # metric_for_best_model: 以哪个指标判断 "最优"
+        #   "eval_loss" — 验证集交叉熵损失（越小越拟合）
         metric_for_best_model=config.METRIC_FOR_BEST_MODEL,
+        # ── 评估策略: 每个 epoch 结束后自动运行验证 ──
+        # eval_strategy="epoch": HF Trainer 在 _inner_training_loop 中每个 epoch 结束时:
+        #   1. 调用 model.eval() 切换评估模式（关闭 dropout/batchnorm）
+        #   2. 遍历 eval_dataset 所有样本，计算 eval_loss
+        #   3. 触发 TrainerCallback.on_evaluate() → YOLOStyleProgressCallback 捕获指标
+        #   4. 根据 save_strategy 决定是否保存 checkpoint
+        # eval_strategy="no": 无验证集（eval_split_ratio=0）时跳过
+        # 可选值: "no" | "steps" | "epoch"
         eval_strategy="epoch" if config.EVAL_SPLIT_RATIO > 0 else "no",
+        # ── Checkpoint 保存策略 ──
+        # save_strategy="best": 仅 eval_loss 改善时保存 → 磁盘高效
+        # save_strategy="epoch": 每轮都保存 → 便于回溯任意 epoch 状态
+        # save_total_limit=3: 最多保留 3 个 best checkpoint，旧自动删除
         save_strategy=config.SAVE_STRATEGY,
         save_total_limit=config.SAVE_TOTAL_LIMIT,
         logging_steps=config.LOGGING_STEPS,
@@ -890,7 +947,24 @@ def train(config: Config) -> tuple:
         model.gradient_checkpointing_enable()
         logger.info("梯度检查点已开启：激活值不缓存，节省 ~50% 显存")
 
-    # ---- 2. 加载数据 + train/val split ----
+    # ═══════════════════════════════════════════════════════════════════
+    # 步骤 2：数据加载 + Train/Val 分割
+    # ═══════════════════════════════════════════════════════════════════
+    #
+    # 验证集的作用（每次 epoch 结束后自动评估）:
+    #   1. 过拟合检测: eval_loss 上升而 train_loss 下降 → 过拟合
+    #   2. 早停 (Early Stopping): eval_loss 连续 patience 轮未改善 → 自动停止
+    #   3. 最优模型选取: 跟踪 eval_loss 最低的 checkpoint → 训练结束自动加载
+    #   4. LoRA 超参调优: 不同 r/alpha/dropout 组合的效果对比
+    #
+    # 分割比例建议:
+    #   数据 < 500 条 → eval_split_ratio=0.15 (验证集太少不可靠)
+    #   数据 500~2000 条 → eval_split_ratio=0.10 (推荐值)
+    #   数据 > 2000 条   → eval_split_ratio=0.05 (验证集足够大)
+    #
+    # train_test_split 保证:
+    #   seed=42 固定随机种子 → 每次运行划分相同，结果可复现
+    #   test_size 从全量数据随机采样，保持原始分布
     dataset = load_and_prepare_data(config, tokenizer)
 
     train_dataset = dataset
@@ -905,6 +979,8 @@ def train(config: Config) -> tuple:
             "数据分割: train=%d, val=%d (ratio=%.2f)",
             len(train_dataset), len(eval_dataset), config.EVAL_SPLIT_RATIO,
         )
+    else:
+        logger.info("验证集未启用 (eval_split_ratio=0)，跳过 epoch 级别评估")
 
     # ---- 3. DataCollator：仅对 assistant 部分计算 loss ----
     # ⚠️ DataCollatorForCompletionOnlyLM 内部以 add_special_tokens=False 编码
@@ -1014,7 +1090,35 @@ def train(config: Config) -> tuple:
     _logging.getLogger("peft").setLevel(_logging.ERROR)
     _logging.getLogger("sentencepiece").setLevel(_logging.ERROR)
 
-    # ---- 实例化 Trainer ----
+    # ═══════════════════════════════════════════════════════════════════
+    # 步骤 5：实例化 SFTTrainer
+    # ═══════════════════════════════════════════════════════════════════
+    #
+    # SFTTrainer 继承自 HF Trainer，训练循环的核心流程:
+    #
+    #   for epoch in range(num_train_epochs):
+    #       ┌─ 训练阶段 ─────────────────────────────────────────┐
+    #       │ for batch in train_dataloader:                     │
+    #       │   loss = model(batch).loss                         │
+    #       │   loss.backward()        # 累积梯度                │
+    #       │   optimizer.step()       # grad_accum_steps 后更新  │
+    #       │   scheduler.step()                                │
+    #       │   → on_log(loss, lr, ...) 每 logging_steps 触发    │
+    #       ├─ 验证阶段 (eval_strategy="epoch") ────────────────┤
+    #       │ model.eval()                                       │
+    #       │ with torch.no_grad():                              │
+    #       │   for batch in eval_dataloader:                    │
+    #       │     eval_loss += model(batch).loss                 │
+    #       │ → on_evaluate(eval_loss, ...)                      │
+    #       │ → save_checkpoint()  # if save_strategy="best"     │
+    #       │ → early_stopping_check()                           │
+    #       ├─ on_epoch_end() ──────────────────────────────────┤
+    #       │ YOLO 行输出 + 早停判断                              │
+    #       └────────────────────────────────────────────────────┘
+    #
+    # 关键参数:
+    #   eval_dataset=None → HF Trainer 跳过验证，eval_strategy 自动变为 "no"
+    #   callbacks 列表 → YOLO输出 + NaN检测 + 早停，按顺序执行
     trainer_kwargs = dict(
         model=model,
         args=training_args,
@@ -1043,7 +1147,19 @@ def train(config: Config) -> tuple:
     trainer.save_model(config.OUTPUT_DIR)
     logger.info("Saved to: %s", config.OUTPUT_DIR)
 
-    # 输出最优指标
+    # ═══════════════════════════════════════════════════════════════════
+    # 训练结束：输出最优指标摘要
+    # ═══════════════════════════════════════════════════════════════════
+    #
+    # trainer.state 是训练过程中的全局状态对象，记录了:
+    #   best_metric: 训练过程中 metric_for_best_model 的历史最优值
+    #     — 由 HF Trainer 在每个 epoch 评估后自动更新
+    #     — 仅当 eval_loss < best_metric 时刷新
+    #   best_model_checkpoint: 最优指标对应的 checkpoint 路径
+    #     — load_best_model_at_end=True 时，训练结束自动从此路径加载模型权重
+    #     — 这意味着 trainer.save_model() 保存的是最优 checkpoint，而非最后一步的权重
+    #   log_history: 所有 on_log 记录的完整历史 (loss, lr, grad_norm, ...)
+    #   epoch: 训练完成时的 epoch 数 (可能因早停而小于 num_train_epochs)
     if eval_dataset is not None:
         best_metric = trainer.state.best_metric
         best_checkpoint = trainer.state.best_model_checkpoint
@@ -1052,6 +1168,14 @@ def train(config: Config) -> tuple:
                 "Best %s: %.4f @ %s",
                 config.METRIC_FOR_BEST_MODEL, best_metric,
                 best_checkpoint or "current",
+            )
+            logger.info(
+                "最优模型已自动加载 (load_best_model_at_end=True)，"
+                "saved adapter = 全训练周期中的最佳 checkpoint"
+            )
+        else:
+            logger.warning(
+                "best_metric=None — 可能所有 eval 轮次均未改善，或 EarlyStopping 未触发 save"
             )
 
     return trainer, tokenizer, exp_dir

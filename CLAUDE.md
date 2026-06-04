@@ -61,7 +61,7 @@ python scripts/export.py --output ./my-tinysage      # 自定义输出路径
 
 ## Architecture
 
-项目采用 5 层工业结构，依赖关系单向：`config ← dataset ← trainer ← eval ← scripts/train`
+项目采用 6 层工业结构，依赖关系单向：`config ← dataset ← trainer ← eval ← export ← scripts/train`
 
 ```
 PolyDistill/
@@ -70,7 +70,8 @@ PolyDistill/
 │   ├── config.py              # Config 默认值 + load_config() + 环境初始化
 │   ├── dataset.py             # 数据加载 + quality_filter + chat_template 格式化
 │   ├── trainer.py             # 模型加载(BF16/SDPA/TF32) + LoRA + SFT + 实验目录
-│   ├── eval.py                # PPL / ROUGE-L / BERTScore / 通用能力 / 综合判断
+│   ├── eval.py                # 6维度评估: PPL/ROUGE-L/BERTScore/生成样本/通用能力/LLM-Judge(5维三方对比)
+│   ├── llm_client.py          # OpenAI-compatible 公共客户端 (LLMClient)
 │   ├── json_to_parquet.py     # JSON → Parquet 格式转换脚本
 │   ├── teachers/              # GPT/Claude/Gemini API 适配器
 │   │   └── __init__.py
@@ -97,7 +98,8 @@ PolyDistill/
 | 配置层 | `config.py` + `config.yaml` | `Config` class 提供默认值；`config.yaml` 覆盖；`load_config()` 合并两者 |
 | 数据层 | `dataset.py` | Parquet 加载 → `_apply_quality_filter()` 质量过滤(空/短/长/重) → chat_template 格式化 → 仅保留 "text" |
 | 训练层 | `trainer.py` | `train(config)` → 模型(BF16/SDPA/TF32) → 数据集 → DataCollatorForCompletionOnlyLM → LoRA → SFTTrainer → YOLOv5 实验目录 |
-| 评测层 | `eval.py` | PPL/ROUGE-L/BERTScore/通用能力(灾难遗忘检测)/LLM-Judge → 综合判定 PASS/WARNING/FAIL |
+| 评测层 | `eval.py` | 6维度独立开关守卫 → PPL/ROUGE-L/BERTScore/生成样本/通用能力(灾难遗忘检测)/LLM-Judge(5维三方对比+improvement/gap) → 综合判定 PASS/WARNING/FAIL |
+| 公共层 | `llm_client.py` | `LLMClient` 封装 OpenAI SDK — `chat()`/`chat_json()`，自动提取 base_url，支持 max_retries/timeout/top_p/seed |
 | 导出层 | `scripts/export.py` | LoRA merge_and_unload → TinySage 独立模型 + 模型卡片；支持 --list/--exp/--adapter |
 | Benchmark | `scripts/benchmark.py` | C-Eval/MMLU/GSM8K 标准化评测 → Base vs LoRA 通用能力定量对比 |
 | 入口层 | `scripts/train.py` | `__main__` 串联全流程；支持 `--eval-only` / `--skip-eval` 模式 |
@@ -118,7 +120,7 @@ Parquet 文件 (reasoning-distill schema: messages/thinking/response/system)
 
 | 决策 | 理由 |
 |------|------|
-| 5 层分离 | 配置/数据/训练/评测/推理 独立，修改一处不影响其他层 |
+| 6 层分离 | 配置/数据/训练/评测/导出/Benchmark 独立，修改一处不影响其他层 |
 | tokenizer 通过参数传递（非 global） | 避免闭包依赖全局变量，函数签名更清晰 |
 | `train()` 返回 `(trainer, tokenizer)` | inference 层可复用 tokenizer，避免重复加载 |
 | `setup_environment()` 在入口调用 | 环境变量必须在 import torch 前设置；入口处调用一次即可 |
@@ -139,7 +141,14 @@ Parquet 文件 (reasoning-distill schema: messages/thinking/response/system)
 | `--eval-only` 模式 | 可不重新训练反复评测，快速迭代 prompt/参数 |
 | Early Stopping + Best Checkpoint | patience 内 eval_loss 未改善则自动停止，加载最优权重 |
 | NEFTune 噪声注入 | embedding 层注入均匀噪声（alpha=5），提升小数据集指令微调泛化性 |
-| 日志系统 | Python logging 标准库，同时输出控制台和文件；`logging.getLogger(__name__)` |
+| 日志系统 | Python logging 标准库，`%(filename)s:%(lineno)d` 格式定位源码位置；同时输出控制台和文件 |
+| LLMClient 公共类 | 封装 OpenAI SDK，`chat()`/`chat_json()` 双接口；`LLMClient(endpoint, model, api_key, timeout, max_retries)`；后续 teachers/ 也可复用 |
+| 6 维度独立开关 | `config.yaml` 中 `eval.{ppl,rouge,bertscore,gen_samples,general_ability,llm_judge}.enabled`；ROUGE 默认关闭（字面匹配对改写不友好） |
+| LLM-Judge 5 维三方对比 | `DISTILLATION_EVAL_PROMPT`: 准确性/相关性/完整性/清晰度/整体(1-5分锚点)；Base vs LoRA vs Teacher；输出 improvement_over_baseline + gap_to_teacher |
+| LLM-Judge HTTP 全配置化 | timeout(600s)/temperature(0.0)/max_tokens(4096)/top_p(1.0)/seed(42)/max_retries(2) 均在 config.yaml 配置 |
+| LLM-Judge 依赖 gen_samples | sample 收集条件: `gen_samples.enabled or llm_judge.enabled`，任一开启即触发；n_show 自动同步 max_samples |
+| 导出自动探测 | `_detect_adapter_dir()` 搜索 `runs/train/exp{N}/` 按 mtime 倒序；`_derive_model_name()` 正则提取规格后缀 → TinySage-{规格} |
+| `--eval-only` adapter 探测 | eval.py 复用 `_detect_adapter_dir()`，不再依赖 config.yaml 中可能过时的 output_dir |
 
 ### 训练参数速查（当前: Qwen3-4B）
 

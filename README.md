@@ -329,8 +329,25 @@ eval:
     endpoint: "http://your-llm-server/v1/chat/completions"  # 兼容 OpenAI API 的地址
     model: "gpt-4"                                          # 裁判模型名
     api_key: "sk-xxx"                                       # API Key（留空则读环境变量 LLM_JUDGE_API_KEY）
-    max_samples: 50                                          # 最大评估样本数（避免 API 费用过高）
+    max_samples: 50                                         # 最大评估样本数（避免 API 费用过高）
+    timeout: 600                                            # 请求超时秒数（默认 10 分钟）
+    temperature: 0.0                                        # 采样温度（0=贪婪解码，评估推荐低温）
+    max_tokens: 4096                                        # 最大生成 token 数
+    top_p: 1.0                                              # nucleus 采样
+    seed: 42                                                # 随机种子（评估结果可复现）
+    max_retries: 2                                          # 失败自动重试次数
 ```
+
+HTTP 请求参数说明：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `timeout` | 600 | 请求超时秒数（10 分钟），本地模型可适当减小 |
+| `temperature` | 0.0 | 采样温度，0=贪婪解码保证确定性，评估不推荐 >0.3 |
+| `max_tokens` | 4096 | 单次回复最大 token 数，需容纳 5 维度评分 JSON |
+| `top_p` | 1.0 | nucleus 采样阈值，1.0=不限制 |
+| `seed` | 42 | 随机种子，固定后相同输入产生相同评分 |
+| `max_retries` | 2 | 网络瞬断/限流时自动重试次数 |
 
 评估结果自动写入 `eval_report.md`（含"蒸馏增益分析"和"与教师差距"章节）和 `eval_results.json` 的 `llm_judge` 字段。
 

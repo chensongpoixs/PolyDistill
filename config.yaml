@@ -68,6 +68,14 @@ data_dir: "./data/ai_infra_audio_video"
 # ============================================================
 # 3. 路径
 # ============================================================
+# 实验产物根目录（YOLOv5 风格，每次训练自动创建自增子目录）。
+#   首次训练: runs/train/exp/
+#   第二次:   runs/train/exp2/
+#   第N次:    runs/train/exp{N}/
+# 所有产物（LoRA adapter / 日志 / 评测报告 / checkpoint）均归入该目录。
+# 切换模型时无需手动修改 output_dir — 代码自动将 output_dir 重定向到实验目录。
+runs_dir: "./runs/train"
+
 # 模型下载缓存目录。
 # 首次运行从 Hugging Face 下载到此目录，之后直接读缓存。
 #   0.6B 约 1.2 GB，1.7B 约 3.4 GB，4B 约 7.6 GB，8B 约 16 GB。
@@ -78,14 +86,9 @@ data_dir: "./data/ai_infra_audio_video"
 cache_dir: "./models/qwen3-4b"
 # cache_dir: "./models/qwen3-8b"
 
-# LoRA adapter 输出目录。
-# 训练完成后在此保存 adapter 权重（约几 MB）和配置文件。
-# 切换模型时必须同步修改，避免不同模型的 adapter 相互覆盖：
-#   0.6B：./lora_sft_ai_infra_audio_video_output
-#   1.7B：./lora_sft_ai_infra_audio_video_output_1.7b
-#   4B：  ./lora_sft_ai_infra_audio_video_output_4b
-#   8B：  ./lora_sft_ai_infra_audio_video_output_8b
-# output_dir: "./lora_sft_ai_infra_audio_video_output_1.7B"
+# LoRA adapter 输出目录（训练时自动重定向到 runs/train/exp{N}/）。
+# 仅在 --eval-only 模式下使用此路径作为 adapter 加载源。
+# 切换模型时可手动指定，但正常训练时此值会被实验目录覆盖。
 output_dir: "./lora_sft_ai_infra_audio_video_output_4B"
 
 # ============================================================
@@ -229,7 +232,7 @@ training:
   #   4B BF16：  per_device_batch_size=1~2（~12-15GB 显存，需开梯度检查点）
   #   8B BF16：  per_device_batch_size=1（~20-23GB 显存，必须开梯度检查点）
   #   若显存超限，优先减少 batch_size 再开启梯度累积
-  per_device_batch_size: 1
+  per_device_batch_size: 2
 
   # 梯度累积步数。
   # 等效 batch = per_device_batch_size × gradient_accumulation_steps

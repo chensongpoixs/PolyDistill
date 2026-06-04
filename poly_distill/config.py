@@ -41,6 +41,8 @@ class Config:
     # ---- 路径 ----
     CACHE_DIR: str = "./models/qwen3-0.6b"
     OUTPUT_DIR: str = "./lora_sft_ai_infra_audio_video_output"
+    # YOLOv5 风格实验目录：每次训练自动创建 runs/train/exp{N}/ 并将所有产物归入
+    RUNS_DIR: str = "./runs/train"
 
     # ---- LoRA 参数 ----
     LORA_R: int = 8
@@ -69,6 +71,7 @@ class Config:
     # DataLoader 优化（缓解 GPU 数据饥饿）
     DATALOADER_NUM_WORKERS: int = 0  # 0=单进程；建议 8-16 以加速数据预处理
     DATALOADER_PIN_MEMORY: bool = True  # 加速 CPU→GPU 数据传输
+    DATALOADER_PREFETCH_FACTOR: int = 4  # 每个 worker 预取 batch 数，缓解 GPU 数据饥饿
     # 日志与保存
     LOGGING_STEPS: int = 10
     SAVE_STRATEGY: str = "best"
@@ -132,6 +135,7 @@ _FIELD_MAP = {
     "data_dir": "DATA_DIR",
     # ---- 路径 ----
     "cache_dir": "CACHE_DIR",
+    "runs_dir": "RUNS_DIR",
     "output_dir": "OUTPUT_DIR",
     # ---- LoRA ----
     "lora.r": ("LORA_R", "LORA_ALPHA", "LORA_DROPOUT", "LORA_TARGET_MODULES"),
@@ -151,6 +155,7 @@ _FIELD_MAP = {
     "training.gradient_checkpointing": "GRADIENT_CHECKPOINTING",
     "training.dataloader_num_workers": "DATALOADER_NUM_WORKERS",
     "training.dataloader_pin_memory": "DATALOADER_PIN_MEMORY",
+    "training.dataloader_prefetch_factor": "DATALOADER_PREFETCH_FACTOR",
     "training.logging_steps": "LOGGING_STEPS",
     "training.save_strategy": "SAVE_STRATEGY",
     "training.save_total_limit": "SAVE_TOTAL_LIMIT",

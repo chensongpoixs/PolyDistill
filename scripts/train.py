@@ -110,7 +110,7 @@ if __name__ == "__main__":
     else:
         # 完整流水线：训练 → 快速推理 → 全量评测
         from poly_distill.trainer import train
-        trainer, tokenizer = train(cfg)
+        trainer, tokenizer, exp_dir = train(cfg)
         quick_compare(cfg, tokenizer)
 
         if not args.skip_eval:
@@ -118,3 +118,5 @@ if __name__ == "__main__":
             run_evaluation(cfg, tokenizer)
         else:
             logger.info("已跳过全量评测 (--skip-eval)")
+
+        logger.info("实验产物已归档: %s", exp_dir)

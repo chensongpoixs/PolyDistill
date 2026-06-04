@@ -9,6 +9,7 @@ LoRA SFT 训练核心逻辑。
 import logging
 import sys
 import time
+from pathlib import Path
 
 import torch
 
@@ -577,6 +578,7 @@ def build_training_args(config: Config) -> TrainingArguments:
         logging_steps=config.LOGGING_STEPS,
         dataloader_num_workers=config.DATALOADER_NUM_WORKERS,
         dataloader_pin_memory=config.DATALOADER_PIN_MEMORY,
+        dataloader_prefetch_factor=config.DATALOADER_PREFETCH_FACTOR,
         bf16=torch.cuda.is_available(),
         report_to="none",
         ddp_find_unused_parameters=False,
@@ -598,12 +600,135 @@ def build_training_args(config: Config) -> TrainingArguments:
 
 
 # ============================================================
+# YOLOv5 风格实验目录
+# ============================================================
+def setup_experiment_dir(config: Config) -> str:
+    """创建 YOLOv5 风格的自增实验目录，将所有产物重定向到该目录。
+
+    目录结构:
+        runs/train/exp/        ← 首次训练
+        runs/train/exp2/       ← 第二次训练
+        runs/train/exp3/       ← ...
+        runs/train/exp{N}/     ← 第 N 次训练
+
+    每次训练产生的所有文件均归入该目录：
+        config.yaml            — 训练配置快照
+        train.log              — 训练日志
+        eval_report.md         — 评测报告
+        eval_results.json      — 结构化评测结果
+        adapter_model.safetensors — LoRA adapter 权重
+        checkpoint-{step}/     — HF 中间检查点
+
+    Args:
+        config: 全局配置（OUTPUT_DIR / APP_LOG_FILE 等路径会被修改）。
+
+    Returns:
+        str: 实验目录的绝对路径。
+    """
+    runs_dir = Path(config.RUNS_DIR)
+    runs_dir.mkdir(parents=True, exist_ok=True)
+
+    # 找到下一个可用编号：exp, exp2, exp3 ...
+    existing = sorted(
+        d for d in runs_dir.iterdir()
+        if d.is_dir() and d.name.startswith("exp")
+    )
+    if not existing:
+        exp_name = "exp"
+    else:
+        # 提取数字后缀，取最大值 + 1
+        nums = []
+        for d in existing:
+            suffix = d.name[3:]  # "exp" 之后的部分
+            if suffix == "":
+                nums.append(1)
+            elif suffix.isdigit():
+                nums.append(int(suffix))
+            else:
+                nums.append(0)
+        next_num = max(nums) + 1 if nums else 1
+        exp_name = f"exp{next_num}" if next_num > 1 else "exp2"
+
+    exp_dir = runs_dir / exp_name
+    exp_dir.mkdir(parents=True, exist_ok=False)
+
+    # ── 重定向所有输出路径到实验目录 ──
+    config.OUTPUT_DIR = str(exp_dir)                        # LoRA adapter + checkpoints
+    config.APP_LOG_FILE = str(exp_dir / "train.log")        # 训练日志
+    config.EVAL_REPORT_PATH = str(exp_dir / "eval_report.md")     # 评测报告
+    config.EVAL_JSON_PATH = str(exp_dir / "eval_results.json")   # 结构化结果
+
+    # ── 重新设置日志文件（追加到已有 handler） ──
+    _redirect_log_file(config)
+
+    # ── 保存配置快照 ──
+    _save_config_snapshot(config, exp_dir)
+
+    logger.info("实验目录: %s", exp_dir.resolve())
+    logger.info("  LoRA adapter → %s", config.OUTPUT_DIR)
+    logger.info("  训练日志     → %s", config.APP_LOG_FILE)
+
+    return str(exp_dir.resolve())
+
+
+def _redirect_log_file(config: Config) -> None:
+    """将 root logger 的文件 handler 重定向到实验目录。
+
+    如果已有指向旧路径的文件 handler，替换为新路径。
+    否则新增一个文件 handler。
+    """
+    root = logging.getLogger()
+    new_path = config.APP_LOG_FILE
+
+    # 查找并更新已有的文件 handler
+    for h in root.handlers[:]:
+        if isinstance(h, logging.FileHandler):
+            h.close()
+            root.removeHandler(h)
+
+    # 新增文件 handler
+    file_handler = logging.FileHandler(new_path, encoding="utf-8")
+    fmt = logging.Formatter(config.APP_LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S")
+    file_handler.setLevel(root.level)
+    file_handler.setFormatter(fmt)
+    root.addHandler(file_handler)
+
+
+def _save_config_snapshot(config: Config, exp_dir: Path) -> None:
+    """将当前配置保存为 YAML 快照，便于事后复现。"""
+    try:
+        import yaml
+    except ImportError:
+        return
+
+    snapshot = {}
+    for attr in sorted(dir(config)):
+        if attr.startswith("_"):
+            continue
+        val = getattr(config, attr)
+        if callable(val):
+            continue
+        if isinstance(val, type):
+            continue
+        # 只保存简单类型
+        if isinstance(val, (str, int, float, bool, list, dict, tuple, type(None))):
+            snapshot[attr.lower()] = val
+
+    snapshot_path = exp_dir / "config.yaml"
+    with open(snapshot_path, "w", encoding="utf-8") as f:
+        yaml.dump(snapshot, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+    logger.info("配置快照已保存: %s", snapshot_path.name)
+
+
+# ============================================================
 # 主训练流程
 # ============================================================
 def train(config: Config) -> tuple:
     """执行 LoRA SFT 训练主流程。
 
     步骤：
+      0. 创建 YOLOv5 风格实验目录（runs/train/exp{N}/）
       1. 加载模型与分词器
       2. 加载并预处理数据集，按比例划分 train/val
       3. 构造 DataCollatorForCompletionOnlyLM（仅对 assistant 回复计算 loss）
@@ -612,8 +737,11 @@ def train(config: Config) -> tuple:
       6. 保存 LoRA adapter 权重
 
     Returns:
-        (SFTTrainer, PreTrainedTokenizer)
+        (SFTTrainer, PreTrainedTokenizer, exp_dir: str)
     """
+    # ---- 0. 创建实验目录 ----
+    exp_dir = setup_experiment_dir(config)
+
     # ---- 1. 加载模型 ----
     model, tokenizer = load_model_and_tokenizer(config)
 
@@ -811,4 +939,4 @@ def train(config: Config) -> tuple:
                 best_checkpoint or "current",
             )
 
-    return trainer, tokenizer
+    return trainer, tokenizer, exp_dir

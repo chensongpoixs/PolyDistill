@@ -81,6 +81,8 @@ class YOLOStyleProgressCallback(TrainerCallback):
         self._train_loss = None
         self._val_loss = None
         self._lr = None
+        self._grad_norm = None
+        self._mean_token_accuracy = None
         self._best_val_loss = float("inf")
         self._best_epoch = 0
         self._last_printed_epoch = -1  # 避免同一 epoch 重复打印
@@ -189,6 +191,10 @@ class YOLOStyleProgressCallback(TrainerCallback):
             self._train_loss = logs["loss"]
         if "learning_rate" in logs:
             self._lr = logs["learning_rate"]
+        if "grad_norm" in logs:
+            self._grad_norm = logs["grad_norm"]
+        if "mean_token_accuracy" in logs:
+            self._mean_token_accuracy = logs["mean_token_accuracy"]
         # 1-indexed：训练中 state.epoch=0.xx → 显示 "1/N"
         if state.epoch is not None:
             current = int(state.epoch) + 1
@@ -233,6 +239,8 @@ class YOLOStyleProgressCallback(TrainerCallback):
                 "epoch": self._epoch,
                 "eval_loss": self._val_loss,
                 "train_loss": self._train_loss,
+                "grad_norm": self._grad_norm,
+                "mean_token_accuracy": self._mean_token_accuracy,
                 "lr": self._lr,
                 "elapsed_seconds": time.time() - self._train_start_time,
             })
@@ -285,15 +293,27 @@ class YOLOStyleProgressCallback(TrainerCallback):
             pass  # 写入失败不影响训练
 
         # ── CSV 格式（对标 YOLOv5 results.csv，便于 Excel/Python 绘图） ──
+        # 列说明:
+        #   epoch               — 训练轮次
+        #   train_loss          — 训练损失 (最后一步)
+        #   eval_loss           — 验证损失 (整轮评估)
+        #   grad_norm           — 梯度范数 (诊断: NaN=爆炸, 逐步增大=需降lr)
+        #   mean_token_accuracy — 平均 token 准确率 (诊断: =0 → DataCollator labels 全 mask)
+        #   lr                  — 当前学习率
+        #   elapsed_seconds     — 从训练开始到当前 epoch 评估结束的总耗时
         csv_path = Path(self._exp_dir) / "results.csv"
         try:
             with open(csv_path, "w", encoding="utf-8") as f:
-                f.write("epoch,train_loss,eval_loss,lr,elapsed_seconds\n")
+                f.write("epoch,train_loss,eval_loss,grad_norm,mean_token_accuracy,lr,elapsed_seconds\n")
                 for entry in self._eval_history:
+                    gn = entry.get("grad_norm")
+                    gn_str = f"{gn:.6f}" if isinstance(gn, (int, float)) and not (isinstance(gn, float) and (gn != gn)) else "nan"
+                    acc = entry.get("mean_token_accuracy")
+                    acc_str = f"{acc:.6f}" if isinstance(acc, (int, float)) else "N/A"
                     f.write(
                         f"{entry['epoch']},{entry['train_loss']:.6f},"
-                        f"{entry['eval_loss']:.6f},{entry['lr']:.6e},"
-                        f"{entry['elapsed_seconds']:.1f}\n"
+                        f"{entry['eval_loss']:.6f},{gn_str},{acc_str},"
+                        f"{entry['lr']:.6e},{entry['elapsed_seconds']:.1f}\n"
                     )
             if is_final:
                 print(f"  ├─ results.csv ({len(self._eval_history)} epochs)", flush=True)

@@ -34,3 +34,8 @@ pyarrow>=15.0.0,<20.0.0        # Parquet 文件读写（训练强制使用 Parqu
 nvidia-ml-py>=12.0.0,<14.0.0    # GPU SM 利用率/功耗/温度实时监控（NVML Python 绑定）
 # wandb>=0.17.0                  # 可视化训练曲线（需在 TrainingArguments 中设置 report_to="wandb"）
 # tensorboard>=2.14.0            # 本地训练可视化（需在 TrainingArguments 中设置 report_to="tensorboard"）
+
+# ---- 可选（用于评测增强） ----
+bert-score>=0.3.0,<1.0.0        # P0-1: BERTScore 语义相似度评估（基于 bert-base-chinese ~440MB）
+lm-eval>=0.4.0,<1.0.0           # P0-2: Benchmark 评测集成（C-Eval/MMLU/GSM8K 等标准化测试）
+openai>=1.0.0,<2.0.0            # LLM-as-Judge: OpenAI SDK 调用外部裁判模型

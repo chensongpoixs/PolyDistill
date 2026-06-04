@@ -25,7 +25,7 @@ PolyDistill 核心能力：
 最终产出的 TinySage 集三家之长，体量 0.6B/1.7B/4B/8B 可选，可灵活部署至端侧或服务器。
 
 **训练框架**：PolyDistill（本仓库提供）  
-**模型**：TinySage（0.6B / 1.7B 双规格）
+**模型**：TinySage（0.6B / 1.7B / 4B / 8B 四规格）
 
 ---
 
@@ -79,34 +79,63 @@ Qwen3 最重要的突破——**单一模型同时支持两种推理模式**：
 PolyDistill/
 ├── poly_distill/          # 训练框架核心代码
 │   ├── config.py          # Config 默认值 + load_config() + 环境初始化
-│   ├── dataset.py         # 数据加载与预处理
-│   ├── trainer.py         # LoRA SFT 训练核心逻辑
-│   ├── eval.py            # PPL / ROUGE-L / 生成样本评测
+│   ├── dataset.py         # 数据加载 + quality_filter 质量过滤 + chat_template 格式化
+│   ├── trainer.py         # LoRA SFT 训练 + GPU SM/功耗监控 + YOLOv5 实验目录
+│   ├── eval.py            # 6 维度评估: PPL/ROUGE-L/BERTScore/生成样本/通用能力/LLM-Judge
 │   ├── json_to_parquet.py # JSON → Parquet 格式转换
 │   ├── teachers/          # GPT/Claude/Gemini 适配器
 │   └── aggregation/       # 多教师知识聚合
 ├── scripts/
-│   └── train.py           # 入口 main：训练 → 推理对比 → 全量评测
+│   ├── train.py           # 入口 main：训练 → 推理对比 → 全量评测
+│   ├── export.py          # LoRA 合并导出 → TinySage 独立模型 + 模型卡片
+│   └── benchmark.py       # C-Eval/MMLU 等标准化 benchmark Base vs LoRA 对比
 ├── config.yaml            # YAML 配置文件（覆盖默认值，推荐编辑此文件）
 ├── requirements.txt       # Python 依赖清单（Python ≥ 3.10）
 ├── data/                  # 蒸馏数据集（Parquet 格式）
-├── models/                # 模型缓存目录
-└── img/                   # 流程图
+├── models/                # 模型缓存目录 + TinySage 导出目录
+├── runs/train/exp{N}/     # YOLOv5 风格实验目录（LoRA adapter + 日志 + 报告）
+├── img/                   # 流程图 / SVG 原理图
+└── docs/                  # 详细文档
 ```
 
-5 层工业结构，依赖关系：`config ← dataset ← trainer ← eval ← scripts/train`
+6 层工业结构，依赖关系：`config ← dataset ← trainer ← eval ← scripts/train`
+
+| 层 | 文件 | 核心职责 |
+|----|------|---------|
+| 配置层 | `config.py` + `config.yaml` | Config class 默认值 + YAML 覆盖 + load_config() |
+| 数据层 | `dataset.py` | Parquet 加载 → quality_filter 4步过滤 → chat_template → "text" 字段 |
+| 训练层 | `trainer.py` | BF16/SDPA/TF32 → LoRA → SFTTrainer → YOLOv5 实验目录 + GPU 监控 |
+| 评测层 | `eval.py` | PPL/ROUGE-L/BERTScore/通用能力/LLM-Judge 5维三方对比 → PASS/WARNING/FAIL |
+| 导出层 | `scripts/export.py` | LoRA merge_and_unload → TinySage 独立模型 + 模型卡片 |
+| Benchmark | `scripts/benchmark.py` | C-Eval/MMLU/GSM8K 标准化评测 Base vs LoRA 对比 |
+| 入口层 | `scripts/train.py` | `__main__` 串联全流程；支持 `--eval-only` / `--skip-eval` 模式 |
 
 ## 环境依赖
 
 | 依赖 | 版本要求 | 用途 |
 |------|---------|------|
 | Python | ≥ 3.10 | - |
+| torch | ≥ 2.3.0 | 深度学习框架 |
+| transformers | ≥ 4.44.0 | 模型加载、Tokenizer、TrainingArguments |
+| datasets | ≥ 2.20.0 | 数据集加载与处理 |
+| trl | ≥ 0.9.0 | SFTTrainer、DataCollatorForCompletionOnlyLM |
+| peft | ≥ 0.12.0 | LoRA 参数高效微调 |
 
 ### 安装
 
 ```bash
 pip install -r requirements.txt
 ```
+
+### 可选依赖
+
+| 依赖 | 用途 | 安装 |
+|------|------|------|
+| `flash-attn` | Flash Attention 显存优化（30-50%）+ 训练加速（20-50%） | 见下方 Flash Attention 章节 |
+| `bert-score` | BERTScore 语义相似度评估（eval.bertscore.enabled） | `pip install bert-score` |
+| `lm-eval` | C-Eval/MMLU Benchmark 标准化评测 | `pip install lm-eval` |
+| `nvidia-ml-py` | GPU SM 利用率/功耗/温度实时监控 | `pip install nvidia-ml-py` |
+| `openai` | LLM-as-Judge OpenAI SDK 调用外部裁判模型 | `pip install openai` |
 
 ### Flash Attention（显存优化，可选）
 
@@ -180,7 +209,21 @@ python poly_distill/json_to_parquet.py --input ./data --output ./data
 python scripts/train.py                     # 完整流水线：训练 → 推理对比 → 全量评测
 python scripts/train.py --config prod.yaml  # 指定配置文件
 python scripts/train.py --skip-eval         # 跳过全量评测（仅做快速推理对比）
-python scripts/train.py --eval-only         # 仅评测已有模型（不重新训练）
+python scripts/train.py --eval-only         # 仅评测已有模型（不重新训练，自动探测最新 adapter）
+```
+
+### Benchmark 标准化评测
+
+```bash
+python scripts/benchmark.py                          # 完整 C-Eval（1,346 题）
+python scripts/benchmark.py --limit 20              # 快速验证 20 题
+python scripts/benchmark.py --tasks ceval,mmlu       # 多 benchmark 评测
+```
+
+### 单独运行评测
+
+```bash
+python poly_distill/eval.py                          # 直接运行全量评测
 ```
 
 ### 调整配置
@@ -211,9 +254,10 @@ base_model = AutoModelForCausalLM.from_pretrained(
     device_map="auto",
     torch_dtype="auto",
 )
+# LoRA adapter 位于 runs/train/exp{N}/ 实验目录下
 model = PeftModel.from_pretrained(
     base_model,
-    "./lora_sft_ai_infra_audio_video_output",
+    "./runs/train/exp3",  # 替换为实际实验目录
 )
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
 ```
@@ -223,14 +267,17 @@ tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
 LoRA adapter 需配合基座模型使用。如需独立分发，将 LoRA 权重合并为完整模型：
 
 ```bash
-python scripts/export.py                        # 默认输出到 ./models/TinySage-0.6B/
-python scripts/export.py --output ./my-model    # 自定义输出路径
-
-# 导出不同规格指定输出路径：
-python scripts/export.py --output ./models/TinySage-1.7B
-python scripts/export.py --output ./models/TinySage-4B
-python scripts/export.py --output ./models/TinySage-8B
+python scripts/export.py                     # 自动探测最新实验 → ./models/TinySage-{规格}
+python scripts/export.py --list              # 列出所有可导出实验
+python scripts/export.py --exp exp3          # 导出指定实验
+python scripts/export.py --adapter ./runs/train/exp3  # 手动指定 adapter 路径
+python scripts/export.py --output ./my-model # 自定义输出路径
 ```
+
+导出逻辑：
+- **自动探测**：搜索 `runs/train/exp{N}/` 下最新包含 `adapter_config.json` 的目录
+- **智能命名**：`Qwen/Qwen3-4B` → `TinySage-4B`（正则提取模型规格后缀）
+- **输出优先级**：CLI `--output` > `config.yaml` `export.output_dir` > 自动推导
 
 合并后的 TinySage 可直接加载，无需 PEFT：
 
@@ -246,34 +293,65 @@ model = AutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained("./models/TinySage-0.6B")
 ```
 
+### 评估维度配置
+
+6 个评估维度均支持 `config.yaml` 独立开关，按需启用：
+
+```yaml
+# config.yaml
+eval:
+  ppl:
+    enabled: true            # PPL 困惑度（计算快，无外部依赖）
+  rouge:
+    enabled: false           # ROUGE-L 字面匹配（默认关闭，用 BERTScore 替代）
+  bertscore:
+    enabled: true            # BERTScore 语义相似度（需 pip install bert-score）
+  gen_samples:
+    enabled: true            # 生成样本 Base vs LoRA 并排对比
+  general_ability:
+    enabled: true            # 通用能力评估（20 道跨领域问题，检测灾难性遗忘）
+  llm_judge:
+    enabled: true            # LLM-as-Judge 大模型打分
+```
+
 ### LLM-as-Judge 质量评估
 
-训练后可启用外部大模型自动评估生成质量，从 **准确性 / 相关性 / 完整性 / 整体质量** 4 维度打分（1-5 分），生成详细点评报告。
+启用后，外部大模型进行 **5 维度三方对比打分**（准确性 / 相关性 / 完整性 / 清晰度 / 整体质量，1-5 分制）：
+
+- **三方对比**：Base（原始基座）vs LoRA（微调后）vs Teacher（教师参考答案）
+- **输出字段**：`improvement_over_baseline`（蒸馏增益）+ `gap_to_teacher`（与教师差距）
 
 ```yaml
 # config.yaml
 eval:
   llm_judge:
-    enabled: true                                         # 启用评估
+    enabled: true                                           # 启用评估
     endpoint: "http://your-llm-server/v1/chat/completions"  # 兼容 OpenAI API 的地址
-    model: "gpt-4"                                        # 裁判模型名
-    api_key: "sk-xxx"                                     # API Key（留空则读环境变量 LLM_JUDGE_API_KEY）
-    max_samples: 10                                       # 最大评估样本数
+    model: "gpt-4"                                          # 裁判模型名
+    api_key: "sk-xxx"                                       # API Key（留空则读环境变量 LLM_JUDGE_API_KEY）
+    max_samples: 50                                          # 最大评估样本数（避免 API 费用过高）
 ```
 
-评估结果自动写入 `eval_report.md` 第 4 章和 `eval_results.json` 的 `llm_judge` 字段。
+评估结果自动写入 `eval_report.md`（含"蒸馏增益分析"和"与教师差距"章节）和 `eval_results.json` 的 `llm_judge` 字段。
 
 > **推荐裁判模型**：Claude 4.5/Opus 4.6、GPT-4o、DeepSeek-V3 等强模型，或本地部署的 Qwen3/Gemma 等兼容 OpenAI API 的服务。
 
 ## 输出
 
-训练完成后在输出目录生成：
+训练采用 YOLOv5 风格实验目录 `runs/train/exp{N}/`（自增编号），所有产物归入同一目录：
 
 - `adapter_config.json` — LoRA 配置记录
 - `adapter_model.safetensors` — LoRA 权重（仅几 MB）
 - `checkpoint-{step}/` — 各 epoch 检查点
+- `config_snapshot.yaml` — 训练时配置快照
+- `results.csv` — 训练日志（loss/grad_norm/accuracy/lr 每步记录）
+- `train.log` — 完整训练日志（含 GPU SM 利用率/功耗/温度）
 - `eval_report.md` — 评测报告（自动生成）
-- `eval_results.json` — 结构化评测结果
+- `eval_results.json` — 结构化评测结果（供程序化分析）
+- `benchmark_report.md` — Benchmark 标准化评测报告
+- `benchmark_results.json` — Benchmark 结构化结果
+
+导出独立模型（`python scripts/export.py`）输出至 `./models/TinySage-{规格}/`。
 
 ### 训练日志参数
 
@@ -287,6 +365,9 @@ eval:
 | `num_tokens` | 已处理 token 数 | 训练到目前为止处理的总 token 数 |
 | `mean_token_accuracy` | 平均 token 准确率 | 每个 token 预测正确的比例，接近 1.0 表示模型已高度拟合当前数据 |
 | `epoch` | 当前 epoch | 小数格式（如 58.4 表示第 58 个 epoch 的 40% 进度） |
+| `SM_util` | GPU SM 利用率 | Streaming Multiprocessor 活跃占比（0-100%），反映 GPU 计算资源使用效率 |
+| `power` | GPU 功耗 | 当前 GPU 功耗（W），用于评估能效和散热 |
+| `temp` | GPU 温度 | 当前 GPU 核心温度（°C） |
 
 ### 训练监控要点
 
@@ -294,6 +375,8 @@ eval:
 - **`grad_norm` 突然飙升** → 梯度爆炸，`max_grad_norm` 已在裁剪但需关注
 - **`mean_token_accuracy` 快速接近 1.0** → 模型记忆训练集，验证集性能可能已经开始退化
 - **`learning_rate`** → 随 cosine/linear scheduler 逐步衰减到 0
+- **`SM_util` 持续 < 60%** → GPU 数据饥饿，考虑增加 num_workers/batch_size 或减少 CPU 瓶颈
+- **`power` / `temp` 异常** → 检查散热和功耗限制，可能需要锁定 GPU 频率
 
 ## 注意事项
 

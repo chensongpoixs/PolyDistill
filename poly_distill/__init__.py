@@ -6,9 +6,11 @@ PolyDistill — 多教师知识蒸馏训练框架。
 """
 
 from poly_distill.config import Config, get_logger, load_config, setup_environment, setup_logging
+from poly_distill.llm_client import LLMClient
 
 __all__ = [
     "Config",
+    "LLMClient",
     "get_logger",
     "load_config",
     "setup_environment",

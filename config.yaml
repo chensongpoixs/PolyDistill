@@ -288,7 +288,7 @@ training:
   #   4B：数据 2000 条 → 15-20 epoch；5000 条 → 8-12 epoch
   #   8B：数据 2000 条 → 10-15 epoch；5000 条 → 5-10 epoch
   # 配合 early_stopping_patience 自动早停，实际 epoch 通常远小于设定值。
-  num_train_epochs: 300
+  num_train_epochs: 1
 
 # ============================================================
 # 7. 正则化
@@ -418,7 +418,7 @@ log:
   file: "./train.log"
 
   # 日志格式。可用变量：asctime, levelname, name, message
-  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  format: "%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d: %(message)s"
 
 # ============================================================
 # 13. 评估
@@ -435,6 +435,30 @@ eval:
   report_path: "./eval_report.md"
   json_path: "./eval_results.json"
 
+  # ---- 评估维度开关（默认全开，按需关闭以加速或节省 API 费用） ----
+
+  # PPL（困惑度）：衡量模型对测试文本的拟合度，越低越好。计算快，无外部依赖。
+  ppl:
+    enabled: false
+
+  # ROUGE-L（字面匹配）：基于 LCS 最长公共子序列。计算快，但对同义改写不友好。
+  # 默认关闭，用 BERTScore（语义相似度）替代。需快速参考时可临时开启。
+  rouge:
+    enabled: false
+
+  # BERTScore（语义相似度）：BERT 向量余弦相似度，能识别"意思相同表述不同"的改写。
+  # 依赖 bert-base-chinese（~440MB），首次运行自动下载。需 pip install bert-score。
+  bertscore:
+    enabled: false
+
+  # 生成样本对比：Base vs LoRA 实际输出并排对比。供人工抽查判断。
+  gen_samples:
+    enabled: true
+
+  # 通用能力评估：20 道跨领域问题（数学/科学/逻辑/中文/代码），检测灾难性遗忘。
+  general_ability:
+    enabled: false
+
   # ---- LLM-as-Judge（大模型打分评估） ----
   # 启用后，将生成样本发送给外部大模型做多维度质量评分（准确性/相关性/完整性/整体质量）。
   # 要求外部 LLM 兼容 OpenAI Chat Completions API 格式。
@@ -445,6 +469,20 @@ eval:
     api_key: "sk-xxxxxxxxxxxxxxxxxxxxxxxx"                     # API Key（留空则从环境变量 LLM_JUDGE_API_KEY 读取）
     max_samples: 50                 # 最大评估样本数（避免 API 费用过高）
 
+
+# ============================================================
+# 14. 模型导出
+# ============================================================
+# 将 LoRA adapter 合并到基座模型，产出可独立分发的完整模型（TinySage）。
+# 用法: python scripts/export.py
+export:
+  # 导出目录。留空则根据 model_id 自动推导：
+  #   Qwen/Qwen3-0.6B → ./models/TinySage-0.6B
+  #   Qwen/Qwen3-1.7B → ./models/TinySage-1.7B
+  #   Qwen/Qwen3-4B   → ./models/TinySage-4B
+  #   Qwen/Qwen3-8B   → ./models/TinySage-8B
+  # 也可手动指定（CLI --output 优先级最高）。
+  output_dir: ""
 
 # ============================================================
 # 附录 A：按数据量调参速查表

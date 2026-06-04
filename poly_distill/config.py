@@ -44,6 +44,9 @@ class Config:
     # YOLOv5 风格实验目录：每次训练自动创建 runs/train/exp{N}/ 并将所有产物归入
     RUNS_DIR: str = "./runs/train"
 
+    # ---- 模型导出 ----
+    EXPORT_DIR: str = ""  # 默认留空，代码按 MODEL_ID 自动推导（如 TinySage-4B）
+
     # ---- LoRA 参数 ----
     LORA_R: int = 8
     LORA_ALPHA: int = 16
@@ -92,7 +95,7 @@ class Config:
     # ---- 应用日志 ----
     APP_LOG_LEVEL: str = "INFO"
     APP_LOG_FILE: str = "./train.log"
-    APP_LOG_FORMAT: str = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    APP_LOG_FORMAT: str = "%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d: %(message)s"
 
     # ---- 评估参数 ----
     EVAL_NUM_SAMPLES: int = 50
@@ -100,12 +103,25 @@ class Config:
     EVAL_TEMPERATURE: float = 0.1
     EVAL_REPORT_PATH: str = "./eval_report.md"
     EVAL_JSON_PATH: str = "./eval_results.json"
+    # 评估维度开关（默认全部开启，可按需关闭）
+    EVAL_PPL_ENABLED: bool = True
+    EVAL_ROUGE_ENABLED: bool = False  # 默认关闭，字面匹配对 LLM 改写不友好，用 BERTScore 替代
+    EVAL_BERTSCORE_ENABLED: bool = True
+    EVAL_GEN_SAMPLES_ENABLED: bool = True
+    EVAL_GENERAL_ABILITY_ENABLED: bool = True
     # ---- LLM-as-Judge（大模型打分评估） ----
-    EVAL_LLM_JUDGE_ENABLED: bool = False
+    EVAL_LLM_JUDGE_ENABLED: bool = True
     EVAL_LLM_JUDGE_ENDPOINT: str = "http://localhost:8000/v1/chat/completions"
     EVAL_LLM_JUDGE_MODEL: str = "gpt-4"
     EVAL_LLM_JUDGE_API_KEY: str = ""
     EVAL_LLM_JUDGE_MAX_SAMPLES: int = 10
+
+    # ---- 数据质量过滤 ----
+    QUALITY_FILTER_ENABLED: bool = True
+    QUALITY_FILTER_MIN_RESPONSE_LENGTH: int = 50
+    QUALITY_FILTER_MAX_RESPONSE_LENGTH: int = 4096
+    QUALITY_FILTER_SKIP_EMPTY: bool = True
+    QUALITY_FILTER_SKIP_DUPLICATES: bool = True
 
     def __init__(self, **kwargs):
         """用关键字参数覆盖任意默认值。
@@ -178,12 +194,25 @@ _FIELD_MAP = {
     "eval.temperature": "EVAL_TEMPERATURE",
     "eval.report_path": "EVAL_REPORT_PATH",
     "eval.json_path": "EVAL_JSON_PATH",
+    "eval.ppl.enabled": "EVAL_PPL_ENABLED",
+    "eval.rouge.enabled": "EVAL_ROUGE_ENABLED",
+    "eval.bertscore.enabled": "EVAL_BERTSCORE_ENABLED",
+    "eval.gen_samples.enabled": "EVAL_GEN_SAMPLES_ENABLED",
+    "eval.general_ability.enabled": "EVAL_GENERAL_ABILITY_ENABLED",
     # ---- LLM-as-Judge ----
     "eval.llm_judge.enabled": "EVAL_LLM_JUDGE_ENABLED",
     "eval.llm_judge.endpoint": "EVAL_LLM_JUDGE_ENDPOINT",
     "eval.llm_judge.model": "EVAL_LLM_JUDGE_MODEL",
     "eval.llm_judge.api_key": "EVAL_LLM_JUDGE_API_KEY",
     "eval.llm_judge.max_samples": "EVAL_LLM_JUDGE_MAX_SAMPLES",
+    # ---- 数据质量过滤 ----
+    "distillation.quality_filter.enabled": "QUALITY_FILTER_ENABLED",
+    "distillation.quality_filter.min_response_length": "QUALITY_FILTER_MIN_RESPONSE_LENGTH",
+    "distillation.quality_filter.max_response_length": "QUALITY_FILTER_MAX_RESPONSE_LENGTH",
+    "distillation.quality_filter.skip_empty": "QUALITY_FILTER_SKIP_EMPTY",
+    "distillation.quality_filter.skip_duplicates": "QUALITY_FILTER_SKIP_DUPLICATES",
+    # ---- 模型导出 ----
+    "export.output_dir": "EXPORT_DIR",
 }
 
 

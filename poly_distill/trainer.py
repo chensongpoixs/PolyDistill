@@ -7,6 +7,7 @@ LoRA SFT 训练核心逻辑。
 """
 
 import logging
+import json
 import math
 import sys
 import time
@@ -70,7 +71,8 @@ class YOLOStyleProgressCallback(TrainerCallback):
     训练结束时输出最优指标。
     """
 
-    def __init__(self, total_epochs: int, train_samples: int, val_samples: int = 0):
+    def __init__(self, total_epochs: int, train_samples: int, val_samples: int = 0,
+                 exp_dir: str = ""):
         self.total_epochs = total_epochs
         self.train_samples = train_samples
         self.val_samples = val_samples
@@ -84,6 +86,9 @@ class YOLOStyleProgressCallback(TrainerCallback):
         self._last_printed_epoch = -1  # 避免同一 epoch 重复打印
         self._header_printed = False
         self._lr_history: dict[int, float] = {}  # epoch → LR，用于训练结束绘制曲线
+        self._exp_dir = exp_dir  # 实验目录，保存验证报告用
+        self._eval_history: list[dict] = []  # 每轮验证指标历史
+        self._train_start_time = 0.0  # 训练开始时间，用于计算总耗时
 
     def _print_header(self):
         if _NVML_AVAILABLE:
@@ -162,6 +167,7 @@ class YOLOStyleProgressCallback(TrainerCallback):
     # ---- TrainerCallback 钩子 ----
 
     def on_train_begin(self, args, state, control, **kwargs):
+        self._train_start_time = time.time()
         self._print_header()
 
     def on_epoch_begin(self, args, state, control, **kwargs):
@@ -222,6 +228,77 @@ class YOLOStyleProgressCallback(TrainerCallback):
             if self._val_loss < self._best_val_loss:
                 self._best_val_loss = self._val_loss
                 self._best_epoch = self._epoch
+            # ── 记录本轮验证指标到历史 ──
+            self._eval_history.append({
+                "epoch": self._epoch,
+                "eval_loss": self._val_loss,
+                "train_loss": self._train_loss,
+                "lr": self._lr,
+                "elapsed_seconds": time.time() - self._train_start_time,
+            })
+            # ── 每轮评估后立即落盘：防止训练崩溃丢失验证历史 ──
+            self._save_eval_report(is_final=False)
+
+    def _save_eval_report(self, is_final: bool = False):
+        """将当前验证历史保存为 JSON 文件到实验目录。
+
+        输出文件:
+          runs/train/exp{N}/eval_history.json  — 每轮验证指标的完整时间序列
+
+        JSON 结构:
+          {
+            "experiment_dir": "runs/train/exp5",
+            "total_epochs": 30,
+            "train_samples": 1775,
+            "val_samples": 198,
+            "best": {"epoch": 12, "eval_loss": 0.8234},
+            "history": [
+              {"epoch": 1, "eval_loss": 1.0892, "train_loss": 1.2345,
+               "lr": 2.0e-04, "elapsed_seconds": 45.2},
+              ...
+            ]
+          }
+
+        写盘策略:
+          is_final=False — 每轮评估后增量写入（防训练中途崩溃丢失记录）
+          is_final=True  — 训练结束时最终写入（含 best 摘要）
+        """
+        if not self._exp_dir:
+            return
+        report = {
+            "experiment_dir": self._exp_dir,
+            "total_epochs": self.total_epochs,
+            "train_samples": self.train_samples,
+            "val_samples": self.val_samples,
+            "best": {
+                "epoch": self._best_epoch if self._best_val_loss < float("inf") else None,
+                "eval_loss": self._best_val_loss if self._best_val_loss < float("inf") else None,
+            },
+            "history": self._eval_history,
+        }
+        # ── JSON 格式（结构化，供程序读取） ──
+        json_path = Path(self._exp_dir) / "eval_history.json"
+        try:
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass  # 写入失败不影响训练
+
+        # ── CSV 格式（对标 YOLOv5 results.csv，便于 Excel/Python 绘图） ──
+        csv_path = Path(self._exp_dir) / "results.csv"
+        try:
+            with open(csv_path, "w", encoding="utf-8") as f:
+                f.write("epoch,train_loss,eval_loss,lr,elapsed_seconds\n")
+                for entry in self._eval_history:
+                    f.write(
+                        f"{entry['epoch']},{entry['train_loss']:.6f},"
+                        f"{entry['eval_loss']:.6f},{entry['lr']:.6e},"
+                        f"{entry['elapsed_seconds']:.1f}\n"
+                    )
+            if is_final:
+                print(f"  ├─ results.csv ({len(self._eval_history)} epochs)", flush=True)
+        except Exception:
+            pass
 
     def on_epoch_end(self, args, state, control, **kwargs):
         """兜底：如果 on_log 未触发 epoch 变化，在此处打印。"""
@@ -274,6 +351,9 @@ class YOLOStyleProgressCallback(TrainerCallback):
         # ---- 学习率下降曲线 ----
         if self._lr_history:
             self._print_lr_curve()
+
+        # ---- 最终验证报告落盘 ----
+        self._save_eval_report(is_final=True)
 
     def _print_lr_curve(self):
         """训练结束时输出 LR 衰减曲线（ASCII 柱状图）。"""
@@ -798,8 +878,10 @@ def setup_experiment_dir(config: Config) -> str:
     _save_config_snapshot(config, exp_dir)
 
     logger.info("实验目录: %s", exp_dir.resolve())
-    logger.info("  LoRA adapter → %s", config.OUTPUT_DIR)
-    logger.info("  训练日志     → %s", config.APP_LOG_FILE)
+    logger.info("  LoRA adapter    → %s", config.OUTPUT_DIR)
+    logger.info("  训练日志        → %s", config.APP_LOG_FILE)
+    logger.info("  验证历史        → %s", str(exp_dir / "eval_history.json"))
+    logger.info("  评测报告        → %s", config.EVAL_REPORT_PATH)
 
     return str(exp_dir.resolve())
 
@@ -852,6 +934,170 @@ def _save_config_snapshot(config: Config, exp_dir: Path) -> None:
         yaml.dump(snapshot, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
     logger.info("配置快照已保存: %s", snapshot_path.name)
+
+
+# ============================================================
+# 训练产物持久化（训练结束后调用）
+# ============================================================
+def _save_train_artifacts(
+    config: Config,
+    exp_dir: str,
+    trainer: "SFTTrainer",
+    model,
+    yolo_callback: YOLOStyleProgressCallback,
+) -> None:
+    """训练结束后保存所有产物到实验目录（对标 YOLOv5 的完整保存策略）。
+
+    YOLOv5 训练完成后保存:
+      best.pt / last.pt / results.csv / results.png / hyp.yaml / opt.yaml
+      / confusion_matrix.png / labels.jpg / train_batch.jpg / val_batch.jpg
+
+    本项目的对应产物 (LLM 训练特性，无图像/矩阵):
+      ┌─────────────────────────────────┬──────────────────────────────────┐
+      │ 文件                             │ 对标 YOLOv5 / 说明                │
+      ├─────────────────────────────────┼──────────────────────────────────┤
+      │ config.yaml                     │ hyp.yaml + opt.yaml (配置快照)    │
+      │ train.log                       │ 训练日志                          │
+      │ adapter_model.safetensors       │ best.pt (LoRA adapter, 最优权重)  │
+      │ checkpoint-{step}/              │ last.pt 等价 (HF checkpoint)      │
+      │ train_history.json              │ 所有 logging step 的 metrics       │
+      │ results.csv       ← NEW        │ results.csv (每轮指标, 可绘图)     │
+      │ eval_history.json               │ 每轮验证结果 (结构化 JSON)         │
+      │ train_results.json ← NEW       │ 综合训练摘要 (模型/参数/指标/GPU)   │
+      │ eval_report.md                  │ 评测报告 (从 eval.py 生成)         │
+      │ eval_results.json               │ 评测结构化结果                     │
+      └─────────────────────────────────┴──────────────────────────────────┘
+
+    本函数负责保存:
+      1. train_history.json  — trainer.state.log_history (每次 log step 的完整记录)
+      2. train_results.json  — 训练摘要（模型信息 + 训练参数 + 最优指标 + GPU状态）
+    """
+    exp_path = Path(exp_dir)
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 1. train_history.json — HF Trainer 的完整 log_history
+    # ═══════════════════════════════════════════════════════════════════
+    #
+    # trainer.state.log_history 记录训练过程中每次 on_log 的数据:
+    #   每个元素是一个 dict，包含当前 step 的 loss / grad_norm / lr / epoch 等。
+    #   这是训练过程最完整的原始数据，可用于:
+    #     - 事后分析 loss 每步变化趋势
+    #     - 绘制 loss 曲线 / LR 衰减曲线
+    #     - 排查 NaN / 异常 step
+    #     - 对比不同实验的训练动态
+    log_history = getattr(trainer.state, "log_history", None)
+    if log_history:
+        _safe_json_write(exp_path / "train_history.json", log_history)
+        logger.info("训练历史已保存: train_history.json (%d steps)", len(log_history))
+
+    # ═══════════════════════════════════════════════════════════════════
+    # 2. train_results.json — 综合训练摘要
+    # ═══════════════════════════════════════════════════════════════════
+    #
+    # 将所有关键信息汇总到一个文件，方便:
+    #   - 快速查看实验结论（无需翻日志）
+    #   - 多实验横向对比（读取多个 exp{N}/train_results.json）
+    #   - 程序化分析（CI/CD pipeline 可解析 JSON 自动生成排行榜）
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    results = {
+        # ── 模型信息 ──
+        "model": {
+            "id": config.MODEL_ID,
+            "total_params": int(total_params),
+            "total_params_millions": round(total_params / 1e6, 1),
+            "trainable_params": int(trainable_params),
+            "trainable_params_millions": round(trainable_params / 1e6, 1),
+            "hidden_size": getattr(model.config, "hidden_size", None),
+            "num_layers": getattr(model.config, "num_hidden_layers", None),
+            "num_attention_heads": getattr(model.config, "num_attention_heads", None),
+        },
+        # ── 训练配置摘要 ──
+        "training_config": {
+            "lora_r": config.LORA_R,
+            "lora_alpha": config.LORA_ALPHA,
+            "lora_target_modules": list(config.LORA_TARGET_MODULES),
+            "learning_rate": config.LEARNING_RATE,
+            "per_device_batch_size": config.PER_DEVICE_BATCH_SIZE,
+            "gradient_accumulation_steps": config.GRADIENT_ACCUMULATION_STEPS,
+            "effective_batch_size": config.PER_DEVICE_BATCH_SIZE * config.GRADIENT_ACCUMULATION_STEPS,
+            "num_train_epochs": config.NUM_TRAIN_EPOCHS,
+            "attention_implementation": config.ATTN_IMPLEMENTATION,
+            "gradient_checkpointing": config.GRADIENT_CHECKPOINTING,
+            "neftune_noise_alpha": config.NEFTUNE_NOISE_ALPHA,
+            "weight_decay": config.WEIGHT_DECAY,
+            "max_grad_norm": config.MAX_GRAD_NORM,
+            "warmup_ratio": config.WARMUP_RATIO,
+            "lr_scheduler_type": config.LR_SCHEDULER_TYPE,
+        },
+        # ── 训练结果 ──
+        "training_results": {
+            "completed_epochs": yolo_callback._epoch,
+            "total_epochs_configured": config.NUM_TRAIN_EPOCHS,
+            # 早停/NaN检测导致提前终止
+            "stopped_early": yolo_callback._epoch < config.NUM_TRAIN_EPOCHS,
+            "best_epoch": yolo_callback._best_epoch if yolo_callback._best_val_loss < float("inf") else None,
+            "best_eval_loss": yolo_callback._best_val_loss if yolo_callback._best_val_loss < float("inf") else None,
+            "final_train_loss": yolo_callback._train_loss,
+            "final_eval_loss": yolo_callback._val_loss,
+            "best_model_checkpoint": getattr(trainer.state, "best_model_checkpoint", None),
+        },
+        # ── 数据 ──
+        "data": {
+            "data_dir": config.DATA_DIR,
+            "train_samples": yolo_callback.train_samples,
+            "val_samples": yolo_callback.val_samples,
+            "eval_split_ratio": config.EVAL_SPLIT_RATIO,
+        },
+        # ── GPU 信息 ──
+        "gpu": {},
+        # ── 实验基本信息 ──
+        "experiment": {
+            "dir": exp_dir,
+            "bf16_training": torch.cuda.is_available(),
+        },
+    }
+
+    # GPU 硬件状态（从 NVML 获取训练结束时的 GPU 快照）
+    if _NVML_AVAILABLE:
+        try:
+            util = pynvml.nvmlDeviceGetUtilizationRates(_NVML_HANDLE)
+            power_mw = pynvml.nvmlDeviceGetPowerUsage(_NVML_HANDLE)
+            temp = pynvml.nvmlDeviceGetTemperature(_NVML_HANDLE, pynvml.NVML_TEMPERATURE_GPU)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(_NVML_HANDLE)
+            gpu_name = pynvml.nvmlDeviceGetName(_NVML_HANDLE)
+            if isinstance(gpu_name, bytes):
+                gpu_name = gpu_name.decode("utf-8")
+            results["gpu"] = {
+                "name": gpu_name,
+                "sm_utilization_pct": util.gpu,
+                "power_watts": round(power_mw / 1000, 1),
+                "temperature_celsius": temp,
+                "memory_used_gb": round(mem_info.used / (1024**3), 1),
+                "memory_total_gb": round(mem_info.total / (1024**3), 1),
+            }
+        except Exception:
+            pass
+    elif torch.cuda.is_available():
+        # NVML 不可用时的 fallback：仅记录 PyTorch 显存
+        results["gpu"] = {
+            "name": torch.cuda.get_device_name(),
+            "memory_allocated_gb": round(torch.cuda.memory_allocated() / (1024**3), 1),
+            "memory_reserved_gb": round(torch.cuda.memory_reserved() / (1024**3), 1),
+        }
+
+    _safe_json_write(exp_path / "train_results.json", results)
+    logger.info("训练摘要已保存: train_results.json")
+
+
+def _safe_json_write(path: Path, data, indent: int = 2) -> None:
+    """安全写入 JSON 文件（不影响训练流程）。"""
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=indent, ensure_ascii=False, default=str)
+    except Exception as e:
+        logger.warning("无法写入 %s: %s", path.name, e)
 
 
 # ============================================================
@@ -1016,6 +1262,7 @@ def train(config: Config) -> tuple:
         total_epochs=config.NUM_TRAIN_EPOCHS,
         train_samples=len(train_dataset),
         val_samples=len(eval_dataset) if eval_dataset else 0,
+        exp_dir=exp_dir,
     )
     callbacks = [yolo_callback]
 
@@ -1143,9 +1390,40 @@ def train(config: Config) -> tuple:
     logger.info("Start SFT training...")
     trainer.train()
 
-    # ---- 7. 保存 LoRA adapter ----
+    # ═══════════════════════════════════════════════════════════════════
+    # 步骤 7：训练后产物保存（对标 YOLOv5 完整策略）
+    # ═══════════════════════════════════════════════════════════════════
+    #
+    # 保存顺序:
+    #   1. LoRA adapter (HF 已通过 load_best_model_at_end 加载最优权重)
+    #   2. train_history.json + train_results.json (本函数)
+    #   3. eval_history.json + results.csv (YOLO callback 已完成)
+    #   4. 最优指标摘要 (下方)
+    #
+    # YOLOv5 对标:
+    #   YOLOv5                           本项目
+    #   best.pt            →             adapter_model.safetensors
+    #   last.pt            →             checkpoint-{step}/  (HF 自动保存)
+    #   results.csv        →             results.csv ✓
+    #   results.png        →             (LLM训练无此需求，可用CSV外部绘图)
+    #   hyp.yaml + opt.yaml →            config.yaml ✓
+    #   confusion_matrix   →             eval_report.md (ROUGE-L/PPL/生成样本)
     trainer.save_model(config.OUTPUT_DIR)
     logger.info("Saved to: %s", config.OUTPUT_DIR)
+
+    # ── 保存训练历史 + 训练摘要 ──
+    _save_train_artifacts(config, exp_dir, trainer, model, yolo_callback)
+
+    # ── 输出实验产物清单（方便用户一目了然） ──
+    exp_path = Path(exp_dir)
+    artifacts = sorted(
+        str(p.relative_to(exp_path))
+        for p in exp_path.iterdir()
+        if p.is_file() and not p.name.startswith(".")
+    )
+    logger.info("实验产物 (%d 个文件):", len(artifacts))
+    for a in artifacts:
+        logger.info("  ├─ %s", a)
 
     # ═══════════════════════════════════════════════════════════════════
     # 训练结束：输出最优指标摘要

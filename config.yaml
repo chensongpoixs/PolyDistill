@@ -45,9 +45,13 @@ model_id: "Qwen/Qwen3-4B"
 # 注意力实现方式（显存/速度权衡）：
 #   "auto"                — 自动检测: FA3(Blackwell) > FA2(Ampere/Hopper) > SDPA（推荐）
 #   "flash_attention_2"   — Flash Attention，HF 自动根据 GPU 架构选择 FA3/FA2
-#   "sdpa"                — PyTorch 2.0+ 内置 SDPA（无需额外安装）
+#   "sdpa"                — PyTorch 2.0+ 内置 SDPA（无需额外安装，BF16/FP32精度，最稳定）
 #   "eager"               — 原生 attention（兼容性最好，显存最大）
-attn_implementation: "auto"
+#
+# ⚠️  4B+ 模型 + Blackwell GPU (RTX 5080/5090)：
+#   FA3 使用 FP8 中间精度，大模型 attention score 可能超范围 → NaN 梯度。
+#   强烈建议使用 "sdpa"（精度 BF16/FP32, 稳定性好, 显存接近 FA）。
+attn_implementation: "sdpa"
 
 # ============================================================
 # 2. 数据
@@ -188,7 +192,7 @@ lora:
   #   1000 条 → r=16 （中等，推荐起步值）
   #   2000 条 → r=32 （增强表达）
   #   5000 条 → r=64 （接近全量微调效果）
-  r: 16
+  r: 32
 
   # LoRA 缩放系数。
   # 实际缩放因子 = alpha / r。通常 alpha = 2 × r。
@@ -229,17 +233,17 @@ training:
   # 每张 GPU 的 micro batch size。按显存选择：
   #   0.6B BF16：per_device_batch_size=4~8（~4-8GB 显存）
   #   1.7B BF16：per_device_batch_size=2~4（~8-12GB 显存）
-  #   4B BF16：  per_device_batch_size=1~2（~12-15GB 显存，需开梯度检查点）
+  #   4B BF16：  per_device_batch_size=1（~13-15GB 显存，需开梯度检查点）
   #   8B BF16：  per_device_batch_size=1（~20-23GB 显存，必须开梯度检查点）
   #   若显存超限，优先减少 batch_size 再开启梯度累积
-  per_device_batch_size: 2
+  per_device_batch_size: 1
 
   # 梯度累积步数。
   # 等效 batch = per_device_batch_size × gradient_accumulation_steps
-  #            = 2 × 12 = 24
+  #            = 1 × 16 = 16
   #
   # 小数据集用小 batch（梯度噪声有助于泛化），大数据集用大 batch（梯度更准）。
-  gradient_accumulation_steps: 16
+  gradient_accumulation_steps: 8
 
   # ---- 学习率 ----
   # LoRA 微调推荐 lr 高于全量微调（全量通常 1e-5 ~ 5e-5）。

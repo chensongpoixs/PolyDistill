@@ -7,6 +7,7 @@ LoRA SFT 训练核心逻辑。
 """
 
 import logging
+import math
 import sys
 import time
 from pathlib import Path
@@ -242,7 +243,13 @@ class YOLOStyleProgressCallback(TrainerCallback):
         print("=" * 78)
         epochs = sorted(self._lr_history.keys())
         lr_values = [self._lr_history[e] for e in epochs]
-        max_lr = max(lr_values) if lr_values else 1.0
+        max_lr = max(lr_values) if lr_values else 0.0
+
+        # 训练过早终止（如 NaN 检测）时 warmup 阶段 LR 接近 0，跳过绘图
+        if max_lr <= 0.0:
+            print("  (训练过早终止，无有效 LR 曲线)")
+            print("=" * 78, flush=True)
+            return
 
         # 按行输出，每行 5 个 epoch
         bar_width = 20
@@ -261,6 +268,56 @@ class YOLOStyleProgressCallback(TrainerCallback):
         print("-" * 78)
         print(f"  LR range: {lr_values[-1]:.2e} → {lr_values[0]:.2e}  (start → end)")
         print("=" * 78, flush=True)
+
+
+# ============================================================
+# NaN 梯度检测回调
+# ============================================================
+class NaNDetectionCallback(TrainerCallback):
+    """检测 loss/grad_norm 中的 NaN/Inf，自动停止训练并给出诊断建议。
+
+    大模型（4B/8B）+ BF16 训练时，低精度矩阵乘法可能产生 NaN 梯度。
+    此回调在检测到异常时：
+      1. 输出诊断信息（当前 loss / grad_norm / LR）
+      2. 自动停止训练，防止模型权重被 NaN 污染
+    """
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is None:
+            return
+
+        loss = logs.get("loss")
+        grad_norm = logs.get("grad_norm")
+
+        loss_bad = loss is not None and (math.isnan(loss) or math.isinf(loss) or loss == 0.0)
+        grad_bad = grad_norm is not None and (math.isnan(grad_norm) or math.isinf(grad_norm))
+
+        if loss_bad or grad_bad:
+            logger.error("=" * 60)
+            logger.error("NaN/Inf/Zero 检测 — 训练异常终止")
+            logger.error("  loss=%.6f  grad_norm=%s  lr=%s  epoch=%.2f",
+                         loss if loss is not None else -1,
+                         str(grad_norm) if grad_norm is not None else "N/A",
+                         str(logs.get("learning_rate", "N/A")),
+                         state.epoch if state.epoch is not None else -1,
+                         )
+            logger.error("  mean_token_accuracy=%.4f",
+                         logs.get("mean_token_accuracy", -1))
+            logger.error("")
+            logger.error("诊断建议（按优先级排列）:")
+            logger.error("  1. [Blackwell GPU] 尝试 attn_implementation: 'sdpa'")
+            logger.error("     FA3 在 Blackwell 上使用 FP8 精度，4B+ 模型 attention score 易超范围")
+            logger.error("  2. BF16 + 大模型精度不足 → 已启用 TF32 matmul 提升精度")
+            logger.error("     (torch.backends.cuda.matmul.allow_tf32=True)")
+            logger.error("  3. 降低 batch_size: per_device_batch_size=1")
+            logger.error("  4. 关闭梯度检查点: gradient_checkpointing: false")
+            logger.error("     (但可能 OOM，4B/8B 需权衡)")
+            logger.error("  5. 尝试 FP32 训练: 修改 torch_dtype=torch.float32")
+            logger.error("     (显存翻倍，需确认 GPU 显存充足)")
+            logger.error("  6. 降级注意力实现: attn_implementation: 'eager'")
+            logger.error("     (原生 attention，最稳定但显存最大)")
+            logger.error("=" * 60)
+            control.should_training_stop = True
 
 
 # ============================================================
@@ -459,6 +516,25 @@ def load_model_and_tokenizer(config: Config) -> tuple:
             # 手动指定
             attn_kwargs["attn_implementation"] = attn_mode
             logger.info("注意力实现 (手动指定): %s", attn_mode)
+
+        # ── Blackwell (SM120) + Flash Attention 2/3 稳定性警告 ──
+        # FA3 在 Blackwell GPU 上使用 FP8 (E4M3/E5M2) 中间精度，
+        # 对 4B+ 大模型可能产生 NaN 梯度 (attention score 超出 FP8 范围)。
+        # SDPA 使用 BF16/FP32 内部计算，更稳定。
+        if sm >= 120 and attn_kwargs.get("attn_implementation") == "flash_attention_2":
+            logger.warning(
+                "⚠️  Blackwell GPU + Flash Attention 2/3 检测到！"
+            )
+            logger.warning(
+                "  FA3 在 Blackwell 上使用 FP8 中间精度，大模型 (hidden≥2560) "
+                "attention score 可能超出 FP8 范围 → NaN 梯度"
+            )
+            logger.warning(
+                "  如遇 grad_norm=nan，请尝试: attn_implementation: 'sdpa'"
+            )
+            logger.warning(
+                "  SDPA 使用 BF16/FP32 内部精度，显存相近，数值更稳定"
+            )
 
     # ═══════════════════════════════════════════════════════════════════
     # 模型加载: BF16 + FlashAttn 双管齐下
@@ -746,6 +822,41 @@ def train(config: Config) -> tuple:
     model, tokenizer = load_model_and_tokenizer(config)
 
     # ═══════════════════════════════════════════════════════════════════
+    # TF32 混合精度：BF16 的安全网
+    # ═══════════════════════════════════════════════════════════════════
+    #
+    # 问题：BF16 的 7-bit 尾数在大矩阵乘法（Q·K^T, FFN 升维）中会累积
+    # 舍入误差，大模型（4B/8B, hidden≥2560）比小模型更容易触发 NaN 梯度。
+    #
+    # TF32 (TensorFloat-32): NVIDIA Ampere+ tensor core 原生格式
+    #   指数: 8-bit (同 FP32/BF16, 范围大不溢出)
+    #   尾数: 10-bit (BF16 仅 7-bit, FP32 为 23-bit)
+    #   → 精度是 BF16 的 8×, 速度仅比 BF16 慢 ~5-10%
+    #
+    # torch.backends.cuda.matmul.allow_tf32:
+    #   torch.matmul / torch.addmm 等 GEMM 操作 → TF32 tensor core
+    #   影响: 所有 Linear 层 (QKV 投影, FFN, LM head)
+    #
+    # torch.backends.cudnn.allow_tf32:
+    #   cuDNN 卷积操作 → TF32 (本项目无 CNN, 但设为 True 无副作用)
+    #
+    # 效果: 4B+ 模型 BF16 训练的 NaN 梯度问题显著减少
+    if torch.cuda.is_available():
+        _cap = torch.cuda.get_device_capability()
+        if _cap[0] >= 8:  # Ampere+ (SM80+)
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            logger.info(
+                "TF32 已启用 (GPU SM%d.%d, 精度=BF16的8×, 速度≈BF16的95%%)",
+                _cap[0], _cap[1],
+            )
+        else:
+            logger.warning(
+                "GPU SM%d.%d < 80, TF32 不可用。大模型训练建议用 FP32 替代 BF16。",
+                _cap[0], _cap[1],
+            )
+
+    # ═══════════════════════════════════════════════════════════════════
     # 梯度检查点 (Gradient Checkpointing): 用 20% 额外计算换 ~50% 显存
     # ═══════════════════════════════════════════════════════════════════
     #
@@ -831,6 +942,10 @@ def train(config: Config) -> tuple:
         val_samples=len(eval_dataset) if eval_dataset else 0,
     )
     callbacks = [yolo_callback]
+
+    # ---- NaN 梯度检测（大模型 BF16 安全网） ----
+    nan_callback = NaNDetectionCallback()
+    callbacks.append(nan_callback)
 
     # ---- 早停回调 ----
     if config.EARLY_STOPPING_PATIENCE > 0 and eval_dataset is not None:

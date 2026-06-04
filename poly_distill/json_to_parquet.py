@@ -115,7 +115,7 @@ def convert_json_to_parquet(input_dir: str, output_dir: str) -> None:
             instruction = item.get("instruction", "")
             thinking = item.get("thinking") or item.get("reasoning") or ""
             response = item.get("output", "")
-            system = item.get("system", SYSTEM_PROMPT)
+            system = item.get("system", "")  # JSON 有 system 字段则写入，无则为空（训练时由 config.SYSTEM_PROMPT 兜底）
 
             # 构造 messages 列：仅包含 user 消息
             messages = [{"role": "user", "content": instruction}]

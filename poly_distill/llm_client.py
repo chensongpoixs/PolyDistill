@@ -39,7 +39,8 @@ class LLMClient:
         endpoint: str,
         model: str,
         api_key: str = "",
-        timeout: int = 60,
+        timeout: int = 600,
+        max_retries: int = 0,
     ):
         # 从完整路径提取 base_url（去除 /chat/completions 后缀）
         base_url = endpoint.rstrip("/")
@@ -56,7 +57,7 @@ class LLMClient:
             base_url=base_url,
             api_key=api_key,
             timeout=timeout,
-            max_retries=0,
+            max_retries=max_retries,
         )
 
     def chat(
@@ -64,7 +65,9 @@ class LLMClient:
         messages: Union[str, List[dict]],
         system: Optional[str] = None,
         temperature: float = 0.1,
-        max_tokens: int = 512,
+        max_tokens: int = 4096,
+        top_p: float = 1.0,
+        seed: Optional[int] = None,
     ) -> str:
         """发送聊天请求并返回模型回复文本。
 
@@ -73,6 +76,8 @@ class LLMClient:
             system:      系统提示词（仅当 messages 为字符串时生效）。
             temperature: 采样温度（0.0 = 贪婪解码）。
             max_tokens:  最大生成 token 数。
+            top_p:       nucleus 采样。
+            seed:        随机种子（None = 不设置）。
 
         Returns:
             模型回复的文本内容。
@@ -90,11 +95,16 @@ class LLMClient:
             msg_list = messages
 
         try:
+            extra = {}
+            if seed is not None:
+                extra["seed"] = seed
             response = self._client.chat.completions.create(
                 model=self.model,
                 messages=msg_list,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                top_p=top_p,
+                **extra,
             )
             logger.debug("LLM API 调用成功, model=%s, tokens=%s",
                          self.model, response.usage)
@@ -110,7 +120,9 @@ class LLMClient:
         messages: Union[str, List[dict]],
         system: Optional[str] = None,
         temperature: float = 0.1,
-        max_tokens: int = 512,
+        max_tokens: int = 4096,
+        top_p: float = 1.0,
+        seed: Optional[int] = None,
     ) -> dict:
         """发送聊天请求并解析 JSON 返回。
 
@@ -123,7 +135,7 @@ class LLMClient:
         Returns:
             解析后的 dict。解析失败时返回 {"error": ..., "raw": ...}。
         """
-        content = self.chat(messages, system, temperature, max_tokens)
+        content = self.chat(messages, system, temperature, max_tokens, top_p, seed)
         content = content.strip()
 
         # 去除 markdown 代码块标记

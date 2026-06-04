@@ -670,18 +670,25 @@ def _call_llm_judge(
     model: str,
     api_key: str,
     prompt: str,
-    timeout: int = 60,
+    timeout: int = 600,
+    temperature: float = 0.0,
+    max_tokens: int = 4096,
+    top_p: float = 1.0,
+    seed: int = 42,
+    max_retries: int = 2,
 ) -> dict:
     """调用外部 LLM API 进行质量评分。
 
     使用 LLMClient 公共类，兼容 OpenAI Chat Completions API。
     """
-    client = LLMClient(endpoint, model, api_key, timeout)
+    client = LLMClient(endpoint, model, api_key, timeout, max_retries)
     return client.chat_json(
         prompt,
         system="You are a technical quality evaluator. Always respond in Chinese JSON format.",
-        temperature=0.1,
-        max_tokens=512,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        top_p=top_p,
+        seed=seed,
     )
 
 
@@ -754,6 +761,12 @@ def evaluate_with_llm_judge(
             config.EVAL_LLM_JUDGE_MODEL,
             api_key,
             prompt_lora,
+            timeout=config.EVAL_LLM_JUDGE_TIMEOUT,
+            temperature=config.EVAL_LLM_JUDGE_TEMPERATURE,
+            max_tokens=config.EVAL_LLM_JUDGE_MAX_TOKENS,
+            top_p=config.EVAL_LLM_JUDGE_TOP_P,
+            seed=config.EVAL_LLM_JUDGE_SEED,
+            max_retries=config.EVAL_LLM_JUDGE_MAX_RETRIES,
         )
 
         time.sleep(0.5)  # 避免 API 限流
@@ -767,6 +780,12 @@ def evaluate_with_llm_judge(
             config.EVAL_LLM_JUDGE_MODEL,
             api_key,
             prompt_base,
+            timeout=config.EVAL_LLM_JUDGE_TIMEOUT,
+            temperature=config.EVAL_LLM_JUDGE_TEMPERATURE,
+            max_tokens=config.EVAL_LLM_JUDGE_MAX_TOKENS,
+            top_p=config.EVAL_LLM_JUDGE_TOP_P,
+            seed=config.EVAL_LLM_JUDGE_SEED,
+            max_retries=config.EVAL_LLM_JUDGE_MAX_RETRIES,
         )
 
         # 收集 5 维度分数

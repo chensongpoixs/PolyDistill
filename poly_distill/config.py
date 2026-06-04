@@ -115,6 +115,12 @@ class Config:
     EVAL_LLM_JUDGE_MODEL: str = "gpt-4"
     EVAL_LLM_JUDGE_API_KEY: str = ""
     EVAL_LLM_JUDGE_MAX_SAMPLES: int = 10
+    EVAL_LLM_JUDGE_TIMEOUT: int = 600  # 请求超时秒数（默认 10 分钟）
+    EVAL_LLM_JUDGE_TEMPERATURE: float = 0.0  # 评估用低温，力求确定性
+    EVAL_LLM_JUDGE_MAX_TOKENS: int = 4096  # 最大生成 token 数
+    EVAL_LLM_JUDGE_TOP_P: float = 1.0  # nucleus sampling
+    EVAL_LLM_JUDGE_SEED: int = 42  # 随机种子，评估结果可复现
+    EVAL_LLM_JUDGE_MAX_RETRIES: int = 2  # 失败自动重试次数
 
     # ---- 数据质量过滤 ----
     QUALITY_FILTER_ENABLED: bool = True
@@ -205,6 +211,12 @@ _FIELD_MAP = {
     "eval.llm_judge.model": "EVAL_LLM_JUDGE_MODEL",
     "eval.llm_judge.api_key": "EVAL_LLM_JUDGE_API_KEY",
     "eval.llm_judge.max_samples": "EVAL_LLM_JUDGE_MAX_SAMPLES",
+    "eval.llm_judge.timeout": "EVAL_LLM_JUDGE_TIMEOUT",
+    "eval.llm_judge.temperature": "EVAL_LLM_JUDGE_TEMPERATURE",
+    "eval.llm_judge.max_tokens": "EVAL_LLM_JUDGE_MAX_TOKENS",
+    "eval.llm_judge.top_p": "EVAL_LLM_JUDGE_TOP_P",
+    "eval.llm_judge.seed": "EVAL_LLM_JUDGE_SEED",
+    "eval.llm_judge.max_retries": "EVAL_LLM_JUDGE_MAX_RETRIES",
     # ---- 数据质量过滤 ----
     "distillation.quality_filter.enabled": "QUALITY_FILTER_ENABLED",
     "distillation.quality_filter.min_response_length": "QUALITY_FILTER_MIN_RESPONSE_LENGTH",

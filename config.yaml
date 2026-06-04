@@ -460,14 +460,20 @@ eval:
     enabled: false
 
   # ---- LLM-as-Judge（大模型打分评估） ----
-  # 启用后，将生成样本发送给外部大模型做多维度质量评分（准确性/相关性/完整性/整体质量）。
+  # 启用后，将生成样本发送给外部大模型做 5 维度三方对比质量评分。
   # 要求外部 LLM 兼容 OpenAI Chat Completions API 格式。
   llm_judge:
-    enabled: true                  # 是否启用（true/false）
+    enabled: true                                           # 是否启用（true/false）
     endpoint: "http://221.10.121.80:20002/v1/chat/completions"  # LLM API 地址
-    model: "gemma-4-31B-it-Q4_0"                  # 裁判模型名称
-    api_key: "sk-xxxxxxxxxxxxxxxxxxxxxxxx"                     # API Key（留空则从环境变量 LLM_JUDGE_API_KEY 读取）
-    max_samples: 50                 # 最大评估样本数（避免 API 费用过高）
+    model: "gemma-4-31B-it-Q4_0"                            # 裁判模型名称
+    api_key: "sk-xxxxxxxxxxxxxxxxxxxxxxxx"                  # API Key（留空则从环境变量 LLM_JUDGE_API_KEY 读取）
+    max_samples: 50                                         # 最大评估样本数（避免 API 费用过高）
+    timeout: 600                                            # 请求超时秒数（默认 10 分钟）
+    temperature: 0.0                                        # 采样温度（0=贪婪解码，评估推荐低温）
+    max_tokens: 10240                                        # 最大生成 token 数
+    top_p: 1.0                                              # nucleus 采样
+    seed: 42                                                # 随机种子（评估结果可复现）
+    max_retries: 2                                          # 失败自动重试次数
 
 
 # ============================================================

@@ -8,3 +8,10 @@
 /train.log
 /poly_distill/__pycache__
 /my-tinysage
+/runs/train/exp11/checkpoint-204
+/runs/train/exp
+/dataset_cache
+/runs
+/data/t
+/scripts/__pycache__
+/.vscode

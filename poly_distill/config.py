@@ -99,7 +99,7 @@ class Config:
 
     # ---- 评估参数 ----
     EVAL_NUM_SAMPLES: int = 50
-    EVAL_MAX_NEW_TOKENS: int = 512
+    EVAL_MAX_NEW_TOKENS: int = 10240
     EVAL_TEMPERATURE: float = 0.1
     EVAL_REPORT_PATH: str = "./eval_report.md"
     EVAL_JSON_PATH: str = "./eval_results.json"

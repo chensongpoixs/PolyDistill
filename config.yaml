@@ -288,7 +288,7 @@ training:
   #   4B：数据 2000 条 → 15-20 epoch；5000 条 → 8-12 epoch
   #   8B：数据 2000 条 → 10-15 epoch；5000 条 → 5-10 epoch
   # 配合 early_stopping_patience 自动早停，实际 epoch 通常远小于设定值。
-  num_train_epochs: 1
+  num_train_epochs: 30
 
 # ============================================================
 # 7. 正则化
@@ -428,7 +428,7 @@ eval:
   num_samples: 50
 
   # 生成参数
-  max_new_tokens: 512           # 最大生成 token 数
+  max_new_tokens: 10240           # 最大生成 token 数
   temperature: 0.1              # 低温采样（越低越确定）
 
   # 评估报告输出路径
@@ -439,7 +439,7 @@ eval:
 
   # PPL（困惑度）：衡量模型对测试文本的拟合度，越低越好。计算快，无外部依赖。
   ppl:
-    enabled: false
+    enabled: true
 
   # ROUGE-L（字面匹配）：基于 LCS 最长公共子序列。计算快，但对同义改写不友好。
   # 默认关闭，用 BERTScore（语义相似度）替代。需快速参考时可临时开启。
@@ -457,7 +457,7 @@ eval:
 
   # 通用能力评估：20 道跨领域问题（数学/科学/逻辑/中文/代码），检测灾难性遗忘。
   general_ability:
-    enabled: false
+    enabled: true
 
   # ---- LLM-as-Judge（大模型打分评估） ----
   # 启用后，将生成样本发送给外部大模型做 5 维度三方对比质量评分。

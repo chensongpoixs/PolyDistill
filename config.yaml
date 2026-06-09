@@ -67,7 +67,9 @@ attn_implementation: "sdpa"
 #   system    : str                    — 系统提示词（可选，fallback 到下方 system_prompt）
 #
 # 训练时 thinking + response 自动拼接为 assistant content，整段计算 loss。
-data_dir: "./data/ai_infra_audio_video"
+#data_dir: "./data/ai_infra_audio_video"
+# D:\Work\AI\AGIC\PolyDistill\data\ai_infra_audio_video\gemma-4-31b_distill
+data_dir: "./data/ai_infra_audio_video/gemma-4-31b_distill"
 
 # ============================================================
 # 3. 路径
@@ -161,8 +163,8 @@ distillation:
   # 自动过滤低质量的教师回答，避免噪声污染训练数据。
   quality_filter:
     enabled: true
-    min_response_length: 50      # 最小回答长度（字符），过短视为无效
-    max_response_length: 4096    # 最大回答长度，过长截断
+    min_response_length: 150      # 最小回答长度（字符），过短视为无效
+    max_response_length: 14096    # 最大回答长度，过长截断
     skip_empty: true             # 跳过空回答
     skip_duplicates: true        # 跳过完全相同的回答（去重）
 
@@ -243,7 +245,7 @@ training:
   #            = 1 × 16 = 16
   #
   # 小数据集用小 batch（梯度噪声有助于泛化），大数据集用大 batch（梯度更准）。
-  gradient_accumulation_steps: 8
+  gradient_accumulation_steps: 64
 
   # ---- 学习率 ----
   # LoRA 微调推荐 lr 高于全量微调（全量通常 1e-5 ~ 5e-5）。
@@ -258,7 +260,7 @@ training:
   # 大模型（4B/8B）学习率建议略低：
   #   4B：2e-4 ~ 3e-4（模型已有较好先验，无须大幅更新）
   #   8B：1e-4 ~ 2e-4（参数量大，高 lr 易破坏预训练知识）
-  learning_rate: 2.0e-4
+  learning_rate: 3.0e-4
 
   # 学习率预热比例。
   # 训练初期 lr 从 0 线性增加到 learning_rate，预热 = warmup_ratio × total_steps 步。
@@ -288,7 +290,7 @@ training:
   #   4B：数据 2000 条 → 15-20 epoch；5000 条 → 8-12 epoch
   #   8B：数据 2000 条 → 10-15 epoch；5000 条 → 5-10 epoch
   # 配合 early_stopping_patience 自动早停，实际 epoch 通常远小于设定值。
-  num_train_epochs: 30
+  num_train_epochs: 300
 
 # ============================================================
 # 7. 正则化
@@ -298,7 +300,7 @@ training:
   # 小数据集用大值（强正则化），大数据集用小值。
   #
   # 推荐：100 条→0.05，500 条→0.02，1000+ 条→0.01
-  weight_decay: 0.05
+  weight_decay: 0.01
 
   # ---- 梯度裁剪 ----
   # 限制梯度的最大 L2 范数，防止单步更新过大。
@@ -337,7 +339,7 @@ training:
   # ---- DataLoader 优化（缓解 GPU 数据饥饿） ----
   # 数据预处理子进程数。0=主进程同步加载（GPU 常等待数据）。
   # 推荐 8-16（8+ 核 CPU 时 GPU SM 利用率可提升 30-50%）。
-  dataloader_num_workers: 2
+  dataloader_num_workers: 1
 
   # 锁页内存（pinned memory）。开启后 GPU DMA 异步拷贝，加速 10-20%。
   dataloader_pin_memory: true

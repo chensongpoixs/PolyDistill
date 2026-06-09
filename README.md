@@ -1,6 +1,6 @@
 # PolyDistill/TinySage
 
-PolyDistill 是一个面向「多教师黑盒知识蒸馏」的训练框架。它统一调度 GPT、Claude、Gemini 等商业大模型作为教师，通过聚合与清洗教师回答，把能力蒸馏并微调到本地可部署的小模型（[TinySage](https://www.modelscope.cn/models/chensongpoixs) 系列：0.6B / 1.7B / 4B / 8B）。
+PolyDistill 是一个面向「多教师黑盒知识蒸馏」的训练框架。它统一调度 GPT、Claude、Gemini 等商业大模型作为教师，通过聚合与清洗教师回答，把能力蒸馏并微调到本地可部署的小模型（[TinySage](https://www.modelscope.cn/profile/chensongpoixs) 系列：0.6B / 1.7B / 4B / 8B）。
 
 项目目标：用最小化的部署成本，获得面向 AI Infra（音视频、流媒体、GPU/CUDA 等领域）高质量的小模型。
 

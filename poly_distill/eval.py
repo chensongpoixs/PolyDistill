@@ -19,6 +19,7 @@
   - eval_results.json : 结构化原始数据（供后续程序化分析）
 """
 
+import gc
 import json
 import logging
 import os
@@ -133,11 +134,12 @@ def evaluate_perplexity(
     total_loss = 0.0
     total_tokens = 0
     n = len(samples)
-
+    logger.info(f">>> 开始 Perplexity 评估 ，当前 GPU 显存占用: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
     with torch.no_grad():
         for i, example in enumerate(samples):
             # 构造与训练一致的对话格式（兼容 JSON 和 Parquet 两种格式）
             messages = _build_messages(example, config)
+            start_time = time.time()  # 用于计算处理速度（tokens/s），反映实际评测效率
             text = tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=False
             )
@@ -151,10 +153,14 @@ def evaluate_perplexity(
             total_tokens += inputs["input_ids"].size(1)
 
             # 进度（每 10 条或最后一条打印）
-            if (i + 1) % 10 == 0 or i == n - 1:
-                print(f"\r  [{label}] PPL: {i+1}/{n}", end="", flush=True)
-        print("", flush=True)  # 换行
-
+            #if (i + 1) % 10 == 0 or i == n - 1:
+            logger.info(f"  [{label}] PPL: {i+1}/{n}, {total_tokens / (time.time() - start_time):.2f} tokens/s");
+            del inputs, outputs, loss  # 及时删除中间变量，释放显存
+        #print("", flush=True)  # 换行
+    # 3. 清理 inputs，以防后面变长
+    #del inputs
+    torch.cuda.synchronize()  # 等待GPU操作完成
+    torch.cuda.empty_cache()
     avg_loss = total_loss / total_tokens if total_tokens > 0 else float("inf")
     avg_ppl = torch.exp(torch.tensor(avg_loss)).item()
 
@@ -229,6 +235,7 @@ def evaluate_rouge(
     scores = []
     n = len(samples)
 
+    start_time = time.time()  # 用于计算生成速度（tokens/s），包含前向传播和解码时间，反映实际使用体验
     for i, example in enumerate(samples):
         # 生成
         question = _get_question(example)
@@ -259,8 +266,8 @@ def evaluate_rouge(
         scores.append(f1)
 
         # 进度
-        print(f"\r  [{label}] ROUGE: {i+1}/{n}", end="", flush=True)
-    print("", flush=True)  # 换行
+        logger.info(f"  [{label}] ROUGE: {i+1}/{n}, {len(generated) / (time.time() - start_time):.2f} tokens/s");
+    # logger.info("", flush=True)  # 换行
 
     avg_f1 = sum(scores) / len(scores) if scores else 0.0
     logger.info("  [%s] ROUGE-L F1=%.4f  (samples=%d)", label, avg_f1, len(scores))
@@ -324,6 +331,7 @@ def evaluate_bertscore(
             {"role": "system", "content": config.SYSTEM_PROMPT},
             {"role": "user", "content": question},
         ]
+        start_time = time.time()  # 用于计算生成速度（tokens/s），包含前向传播和解码时间，反映实际使用体验
         text = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
@@ -343,8 +351,9 @@ def evaluate_bertscore(
         references.append(_get_reference(example))
         candidates.append(generated)
 
-        print(f"\r  [{label}] BERTScore: {i+1}/{len(samples)}", end="", flush=True)
-    print("", flush=True)
+        logger.info(f"  [{label}] BERTScore: {i+1}/{len(samples)}, {len(generated) / (time.time() - start_time):.2f} tokens/s")
+        #logging.info(f" [{label}] Gen: {i+1}/{n_show}, {len(generated) / (time.time() - start_time):.2f} tokens/s")
+    #logger.info("", flush=True)
 
     # 调用 bert-score 库（batch 模式，比逐条调用快 ~10×）
     # model_type="bert-base-chinese" — 中文 BERT，单字级别 tokenization
@@ -454,6 +463,7 @@ def evaluate_general_ability(
             {"role": "system", "content": config.SYSTEM_PROMPT},
             {"role": "user", "content": q},
         ]
+        start_time = time.time()  # 用于计算生成速度（tokens/s），包含前向传播和解码时间，反映实际使用体验  
         text = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
@@ -482,8 +492,9 @@ def evaluate_general_ability(
 
         category_lengths.setdefault(q_type, []).append(gen_len)
 
-        print(f"\r  [{label}] General: {i+1}/{len(GENERAL_BENCHMARK_QUESTIONS)}", end="", flush=True)
-    print("", flush=True)
+        logger.info(f"\r  [{label}] General: {i+1}/{len(GENERAL_BENCHMARK_QUESTIONS)}, {len(generated) / (time.time() - start_time):.2f} tokens/s")
+        del inputs, outputs  # 及时删除中间变量，释放显存
+    #logger.info("", flush=True)
 
     n = len(GENERAL_BENCHMARK_QUESTIONS)
     avg_len = sum(lengths) / n if n > 0 else 0.0
@@ -535,14 +546,23 @@ def collect_generation_samples(
     """
     model.eval()
     results = []
-    show_samples = samples[:n_show]
+    show_samples= [];
+    # 随机选择 samples[:n_show]
+    if len(samples) > n_show:
+        show_samples = random.sample(samples, n_show)
+    else:        show_samples = samples[:n_show]
 
+   # gc.collect()  # 手动触发 Python 垃圾回收，释放未使用的内存
+    #torch.cuda.empty_cache()  # 清空 PyTorch GPU 缓存，释放显存占用
+    logger.info(f">>> 收集 {label} 模型生成样本 ，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     for i, example in enumerate(show_samples):
         question = _get_question(example)
         messages = [
             {"role": "system", "content": config.SYSTEM_PROMPT},
             {"role": "user", "content": question},
         ]
+        # start_time 用于计算生成速度（tokens/s），包含前向传播和解码时间，反映实际使用体验
+        start_time = time.time();
         text = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
@@ -565,9 +585,13 @@ def collect_generation_samples(
             "reference": _get_reference(example),
             "generated": generated,
         })
-        print(f"\r  [{label}] Gen: {i+1}/{n_show}", end="", flush=True)
-    print("", flush=True)  # 换行
-
+        logging.info(f" [{label}] Gen: {i+1}/{n_show}, {len(generated) / (time.time() - start_time):.2f} tokens/s")
+        del inputs, outputs  # 及时删除中间变量，释放显存
+    # print("", flush=True)  # 换行
+    # 3. 清理 inputs，以防后面变长
+    #del inputs
+    torch.cuda.synchronize()  # 等待GPU操作完成
+    torch.cuda.empty_cache()  # 清空 GPU 缓存，释放显存占用
     return results
 
 
@@ -1310,13 +1334,23 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
 
     # ---- 加载 Base 模型 ----
     logger.info("--- 加载 Base 模型: %s ---", config.MODEL_ID)
+    logger.info(f">>> 加载Base 模型 ，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     base_model = AutoModelForCausalLM.from_pretrained(
         config.MODEL_ID,
-        device_map="auto",
+        # device_map="auto",
+        device_map="cuda:0",  # 不要用 auto！
         torch_dtype=torch.float16,
         trust_remote_code=True,
+        attn_implementation="flash_attention_2",  # ← 这行最关键
     )
-
+    #print(f"加载Base 模型完成，当前 GPU 显存占用: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+    #logger.info(f">>> 加载Base 模型完成 ，当前 GPU 显存占用: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+    # 打印此时剩余的显存（单位：GB）
+    # allocated = torch.cuda.memory_allocated() / 1024**3
+    # reserved = torch.cuda.memory_reserved() / 1024**3
+    logger.info(f">>> 加载Base 模型完成 ，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
+    #print(f"释放后显存占用: 已分配 {allocated:.2f} GB, 预分配 {reserved:.2f} GB")
+    time.sleep(1)  # 确保显存占用稳定
     # ---- Base 评估 ----
     ppl_results = []
     if config.EVAL_PPL_ENABLED:
@@ -1324,27 +1358,30 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
         ppl_results.append(
             evaluate_perplexity(base_model, tokenizer, config, eval_samples, "Base")
         )
+        logger.info(f">>> Perplexity 评估完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
         logger.info(">>> Perplexity 评估: 已禁用 (eval.ppl.enabled=false)")
-
+        
     rouge_results = []
     if config.EVAL_ROUGE_ENABLED:
         logger.info(">>> ROUGE-L 评估")
         rouge_results.append(
             evaluate_rouge(base_model, tokenizer, config, eval_samples, "Base")
         )
+        logger.info(f">>> ROUGE-L 评估完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
         logger.info(">>> ROUGE-L 评估: 已禁用 (eval.rouge.enabled=false)")
-
+    # logger.info(f" 当前 GPU 显存占用: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
     bertscore_results = []
     if config.EVAL_BERTSCORE_ENABLED:
         logger.info(">>> BERTScore 评估")
         bertscore_results.append(
             evaluate_bertscore(base_model, tokenizer, config, eval_samples, "Base")
         )
+        logger.info(f">>> BERTScore 评估完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
         logger.info(">>> BERTScore 评估: 已禁用 (eval.bertscore.enabled=false)")
-
+    # logger.info(f" 当前 GPU 显存占用: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
     base_gen_samples = []
     _need_gen = config.EVAL_GEN_SAMPLES_ENABLED or config.EVAL_LLM_JUDGE_ENABLED
     if _need_gen:
@@ -1354,22 +1391,26 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
         base_gen_samples = collect_generation_samples(
             base_model, tokenizer, config, eval_samples, "Base", n_show=_n_show
         )
+        logger.info(f">>> 收集 Base 模型生成样本 ，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
-        logger.info(">>> 生成样本收集: 已禁用 (eval.gen_samples.enabled=false)")
-
+        logger.info(">>> 生成样本收集: 已禁用 (eval.gen_samples.enabled=false)") 
     general_results = []
     if config.EVAL_GENERAL_ABILITY_ENABLED:
         logger.info(">>> 通用能力评估 (Base)")
         general_results.append(
             evaluate_general_ability(base_model, tokenizer, config, "Base")
         )
+        logger.info(f">>>  通用能力评估 (Base) 完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
         logger.info(">>> 通用能力评估: 已禁用 (eval.general_ability.enabled=false)")
 
     # ---- 释放 Base 模型显存 ----
+    logger.info(f"当前 GPU 显存占用: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
     del base_model
+    gc.collect()  # 手动触发 Python 垃圾回收
+    torch.cuda.synchronize()  # 确保所有 GPU 操作完成
     torch.cuda.empty_cache()
-
+    logger.info(f"释放 Base 模型显存后，当前 GPU 显存占用: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
     # ---- 加载 LoRA 模型 ----
     adapter_dir = _detect_adapter_dir(config)
     logger.info("--- 加载 LoRA 模型 ---")
@@ -1377,26 +1418,33 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     logger.info("  Adapter : %s", adapter_dir)
     lora_base = AutoModelForCausalLM.from_pretrained(
         config.MODEL_ID,
-        device_map="auto",
+        # device_map="auto",
+        device_map="cuda:0",  # 不要用 auto！
         torch_dtype=torch.float16,
         trust_remote_code=True,
+        attn_implementation="flash_attention_2",  # ← 这行最关键
     )
+    logger.info(f"加载 LoRA 基座模型完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     lora_model = PeftModel.from_pretrained(lora_base, adapter_dir)
-
+    logger.info(f"加载 LoRA 模型完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
+    # # 强制把所有参数移到 GPU（有些模型可能默认在 CPU 上，导致评估时频繁数据迁移）
+    lora_model = lora_model.to('cuda')
     # ---- LoRA 评估 ----
     if config.EVAL_PPL_ENABLED:
         logger.info(">>> Perplexity 评估")
         ppl_results.append(
             evaluate_perplexity(lora_model, tokenizer, config, eval_samples, "LoRA")
         )
+        logger.info(f">>> Perplexity 评估完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
         logger.info(">>> Perplexity 评估: 已禁用 (eval.ppl.enabled=false)")
-
+    
     if config.EVAL_ROUGE_ENABLED:
         logger.info(">>> ROUGE-L 评估")
         rouge_results.append(
             evaluate_rouge(lora_model, tokenizer, config, eval_samples, "LoRA")
         )
+        logger.info(f">>> ROUGE-L 评估完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
         logger.info(">>> ROUGE-L 评估: 已禁用 (eval.rouge.enabled=false)")
 
@@ -1405,6 +1453,7 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
         bertscore_results.append(
             evaluate_bertscore(lora_model, tokenizer, config, eval_samples, "LoRA")
         )
+        logger.info(f">>> BERTScore 评估完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
         logger.info(">>> BERTScore 评估: 已禁用 (eval.bertscore.enabled=false)")
 
@@ -1415,6 +1464,7 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
         lora_gen_samples = collect_generation_samples(
             lora_model, tokenizer, config, eval_samples, "LoRA", n_show=_n_show
         )
+        logger.info(f">>>  LoRA 模型生成样本收集 完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
         logger.info(">>> 生成样本收集: 已禁用 (eval.gen_samples.enabled=false)")
 
@@ -1423,11 +1473,13 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
         general_results.append(
             evaluate_general_ability(lora_model, tokenizer, config, "LoRA")
         )
+        logger.info(f">>> 通用能力评估完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
         logger.info(">>> 通用能力评估: 已禁用 (eval.general_ability.enabled=false)")
 
     # ---- LLM-as-Judge 评估 ----
     llm_judge_results = evaluate_with_llm_judge(config, base_gen_samples, lora_gen_samples)
+    logger.info(f">>> LLM-as-Judge 评估完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
 
     # ---- 生成报告 ----
     report = generate_report(config, ppl_results, rouge_results, base_gen_samples, lora_gen_samples, llm_judge_results, bertscore_results, general_results)

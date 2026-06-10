@@ -11,9 +11,12 @@
 """
 
 import argparse
+from datetime import time
 import logging
 import os
 import sys
+import time
+import torch
 
 # 将项目根目录加入 Python 搜索路径，确保 scripts/ 下运行时能找到 poly_distill 包
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -100,13 +103,26 @@ if __name__ == "__main__":
         from transformers import AutoTokenizer
         from poly_distill.eval import run_evaluation
 
+        # 注意：评测时也需要 tokenizer，且必须与训练时一致（尤其是特殊 token）。如果训练时使用了缓存目录，也要保持一致以避免重复下载。
+        logger.info("=== 评测模式: 仅评测已有模型 ===")
+        logger.info("加载 tokenizer（模型 ID: %s，缓存目录: %s）", cfg.MODEL_ID, cfg.CACHE_DIR)
+        logger.info("请确保模型已训练完成且 %s 目录下存在 LoRA adapter 权重", cfg.OUTPUT_DIR)
         tokenizer = AutoTokenizer.from_pretrained(
             cfg.MODEL_ID, use_fast=True, trust_remote_code=True, cache_dir=cfg.CACHE_DIR
         )
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
+        logger.info("开始全量评测...")
+        logger.info("评测过程中会自动加载 %s 目录下的 LoRA adapter 权重，请确保该目录存在且包含正确的权重文件。", cfg.OUTPUT_DIR)
+        logger.info(f"tokenizer 使用GPU显存大小约为 {{tokenizer.model_max_length * 4 / 1e9:.2f}} GB，请确保有足够的显存可用。 当前使用已分配 {{torch.cuda.memory_allocated() / 1024**3:.2f}} GB, 预分配 {{torch.cuda.memory_reserved() / 1024**3:.2f}} GB" );
+        logger.info("请耐心等待，评测过程中会持续输出进度和速度信息。 评测完成后会输出详细报告。")
+        logger.info("评测结果将保存在 %s 目录下", cfg.OUTPUT_DIR)
+
+        start_time = time.time()
         run_evaluation(cfg, tokenizer)
+        end_time = time.time()
+        logger.info("全量评测完成，耗时: %.2f 秒", end_time - start_time)
     else:
         # 完整流水线：训练 → 快速推理 → 全量评测
         from poly_distill.trainer import train

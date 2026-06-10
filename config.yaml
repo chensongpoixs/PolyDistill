@@ -41,6 +41,7 @@
 # model_id: "Qwen/Qwen3-1.7B"
 # model_id: "Qwen/Qwen3-4B"
 model_id: "Qwen/Qwen3-4B"
+# model_id: "Qwen/Qwen3-4B-Instruct-2507"
 
 # 注意力实现方式（显存/速度权衡）：
 #   "auto"                — 自动检测: FA3(Blackwell) > FA2(Ampere/Hopper) > SDPA（推荐）
@@ -134,7 +135,7 @@ distillation:
     max_retries: 3               # 单次调用最大重试次数
     request_timeout: 60          # 单次请求超时（秒）
     rate_limit_rpm: 50           # 每分钟最大请求数（各教师独立计算）
-    max_tokens: 2048             # 教师回答最大 token 数
+    max_tokens: 10240             # 教师回答最大 token 数
     temperature: 0.7             # 教师生成温度（>0 引入多样性，=0 确定性最高）
 
   # ---- 蒸馏温度 ----
@@ -245,7 +246,7 @@ training:
   #            = 1 × 16 = 16
   #
   # 小数据集用小 batch（梯度噪声有助于泛化），大数据集用大 batch（梯度更准）。
-  gradient_accumulation_steps: 64
+  gradient_accumulation_steps: 32
 
   # ---- 学习率 ----
   # LoRA 微调推荐 lr 高于全量微调（全量通常 1e-5 ~ 5e-5）。
@@ -290,7 +291,7 @@ training:
   #   4B：数据 2000 条 → 15-20 epoch；5000 条 → 8-12 epoch
   #   8B：数据 2000 条 → 10-15 epoch；5000 条 → 5-10 epoch
   # 配合 early_stopping_patience 自动早停，实际 epoch 通常远小于设定值。
-  num_train_epochs: 300
+  num_train_epochs: 30
 
 # ============================================================
 # 7. 正则化

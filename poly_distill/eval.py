@@ -1536,7 +1536,7 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     logger.info(f"参数分布: CPU = {on_cpu}, GPU = {on_cuda}")
     # 打印模型所有参数的设备分布详情
     for i, (name, param) in enumerate(base_model.named_parameters()):
-        logger.info(f"i={i}, 参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB");
+        logger.info(f"i={i}, 参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024:.2f} KB");
 
     # 哪些参数是冻结的基础模型参数，哪些是 LoRA adapter 参数，并打印它们的设备分布详情，确认所有参数都在 GPU 上
     # total_params = 0
@@ -1660,9 +1660,9 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
         total_params += param.numel()
         if "lora" in name.lower():
             adapter_params += param.numel()
-            logger.info(f"LoRA 参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB")
+            logger.info(f"LoRA 参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024:.2f} KB")
         else:
-            logger.info(f"基础模型参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB")
+            logger.info(f"基础模型参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024:.2f} KB")
     logger.info(f"总参数量: {total_params:,}, LoRA 参数量: {adapter_params:,} ({adapter_params / total_params * 100:.2f}%)")
     logger.info(f"当前 GPU 显存占用: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
     # ---- LoRA 评估 ----

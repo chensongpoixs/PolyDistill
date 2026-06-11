@@ -1456,7 +1456,7 @@ def train(config: Config) -> tuple:
     logger.info(f"基础模型参数分布: CPU = {base_on_cpu}, GPU = {base_on_cuda}");
     # # 打印Base 模型所有参数的设备分布详情  
     for i, (name, param) in enumerate(model.named_parameters()):
-        logger.info(f"i={i}, 参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB");
+        logger.info(f"i={i}, 参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024:.2f} KB");
     # 打印Base 模型所有参数的设备分布详情，确认冻结的基础模型参数确实在 GPU 上
     # 打印 LORA adapter 的参数分布详情，确认 adapter 参数确实在 GPU 上
     adapter_params = [p for p in model.parameters() if p.requires_grad];
@@ -1466,7 +1466,7 @@ def train(config: Config) -> tuple:
     # 哪些参数是冻结的基础模型参数，哪些是 LoRA adapter 参数，并打印它们的设备分布详情，确认所有参数都在 GPU 上
     for i, (name, param) in enumerate(model.named_parameters()):
         param_type = "Adapter" if param.requires_grad else "Base"
-        logger.info(f"i={i}, 参数: {name}, 类型: {param_type}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB");
+        logger.info(f"i={i}, 参数: {name}, 类型: {param_type}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024:.2f} KB");
      # 打印Base 模型所有参数的设备分布详情 （包含冻结的基础模型参数和 LoRA adapter 参数），确认所有参数都在 GPU 上
      
     logger.info("训练即将开始，输出将以 YOLOv5 风格实时更新（每 epoch 一行），请耐心等待...")

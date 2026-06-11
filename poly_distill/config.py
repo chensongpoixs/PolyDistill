@@ -109,6 +109,7 @@ class Config:
     EVAL_BERTSCORE_ENABLED: bool = True
     EVAL_GEN_SAMPLES_ENABLED: bool = True
     EVAL_GENERAL_ABILITY_ENABLED: bool = True
+    EVAL_SHOW_SAMPLES: bool = True  # 是否在评测报告中展示生成样本（仅 eval_gen_samples_enabled=True 时生效）
     # ---- LLM-as-Judge（大模型打分评估） ----
     EVAL_LLM_JUDGE_ENABLED: bool = True
     EVAL_LLM_JUDGE_ENDPOINT: str = "http://localhost:8000/v1/chat/completions"
@@ -121,6 +122,7 @@ class Config:
     EVAL_LLM_JUDGE_TOP_P: float = 1.0  # nucleus sampling
     EVAL_LLM_JUDGE_SEED: int = 42  # 随机种子，评估结果可复现
     EVAL_LLM_JUDGE_MAX_RETRIES: int = 2  # 失败自动重试次数
+    
 
     # ---- 数据质量过滤 ----
     QUALITY_FILTER_ENABLED: bool = True
@@ -205,6 +207,7 @@ _FIELD_MAP = {
     "eval.bertscore.enabled": "EVAL_BERTSCORE_ENABLED",
     "eval.gen_samples.enabled": "EVAL_GEN_SAMPLES_ENABLED",
     "eval.general_ability.enabled": "EVAL_GENERAL_ABILITY_ENABLED",
+    "eval.show_samples": "EVAL_SHOW_SAMPLES", # EVAL_SHOW_SAMPLES 仅控制评测报告中是否展示生成样本，不影响 eval_gen_samples_enabled 的评测流程和结果
     # ---- LLM-as-Judge ----
     "eval.llm_judge.enabled": "EVAL_LLM_JUDGE_ENABLED",
     "eval.llm_judge.endpoint": "EVAL_LLM_JUDGE_ENDPOINT",

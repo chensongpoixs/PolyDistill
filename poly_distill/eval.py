@@ -37,6 +37,9 @@ from datasets import concatenate_datasets, load_dataset
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, PreTrainedTokenizer
 
+from transformers.utils import is_flash_attn_2_available
+
+
 from poly_distill.config import Config
 from poly_distill.llm_client import LLMClient
 
@@ -160,7 +163,7 @@ def evaluate_perplexity(
     # 3. 清理 inputs，以防后面变长
     #del inputs
     torch.cuda.synchronize()  # 等待GPU操作完成
-    torch.cuda.empty_cache()
+    torch.cuda.empty_cache()  # 清空 GPU 缓存，释放显存占用
     avg_loss = total_loss / total_tokens if total_tokens > 0 else float("inf")
     avg_ppl = torch.exp(torch.tensor(avg_loss)).item()
 
@@ -416,6 +419,171 @@ GENERAL_BENCHMARK_QUESTIONS = [
     {"question": "用 Python 写一个函数判断一个字符串是否为回文。", "type": "code"},
     {"question": "用 Python 实现二分查找算法。", "type": "code"},
     {"question": "用 Python 读取一个 CSV 文件并计算某一列的平均值。", "type": "code"},
+    # -- C++ 代码能力（更接近模型实际训练环境，检测是否遗忘底层编程能力） --
+    # {"question": "使用 C++11 实现一个线程安全的阻塞队列，支持多生产者多消费者模型。","type": "code","category": "concurrency","difficulty": "medium"},
+    # {
+    #     "question": "使用 C++ 实现一个高性能内存池，支持对象复用和自动回收。",
+    #     "type": "code",
+    #     "category": "memory",
+    #     "difficulty": "hard"
+    # },
+    # {
+    #     "question": "使用 C++ 实现一个 Reactor 网络模型，并支持 epoll 事件驱动。",
+    #     "type": "code",
+    #     "category": "network",
+    #     "difficulty": "hard"
+    # },
+    # {
+    #     "question": "设计并实现一个支持百万连接的 TCP 服务端框架。",
+    #     "type": "design",
+    #     "category": "architecture",
+    #     "difficulty": "hard"
+    # },
+    # # -- Linux 系统编程能力（检测是否遗忘底层系统编程能力） --
+    # {
+    #     "question": "实现一个 Linux 版简易 top 命令，统计 CPU、内存和线程信息。",
+    #     "type": "code",
+    #     "category": "linux",
+    #     "difficulty": "medium"
+    # },
+    # {
+    #     "question": "实现一个文件监控服务，使用 inotify 实时监听目录变化。",
+    #     "type": "code",
+    #     "category": "linux",
+    #     "difficulty": "medium"
+    # },
+    # {
+    #     "question": "解释 Linux 零拷贝技术，并使用 sendfile 实现文件传输。",
+    #     "type": "code",
+    #     "category": "linux",
+    #     "difficulty": "hard"
+    # },
+    # # -- FFmpeg 音视频处理能力（检测是否遗忘底层音视频处理能力） --
+    # {
+    #     "question": "使用 FFmpeg API 实现 H264 视频解码，并输出 YUV420P 数据。",
+    #     "type": "code",
+    #     "category": "ffmpeg",
+    #     "difficulty": "hard"
+    # },
+    # {
+    #     "question": "设计一个支持 RTMP、RTSP、HLS 的流媒体转发服务。",
+    #     "type": "design",
+    #     "category": "streaming",
+    #     "difficulty": "hard"
+    # },
+    # {
+    #     "question": "实现一个基于 FFmpeg 的视频转码服务，并支持 GPU 硬件加速。",
+    #     "type": "code",
+    #     "category": "ffmpeg",
+    #     "difficulty": "hard"
+    # },
+    # # -- WebRTC 音视频处理能力（检测是否遗忘底层音视频处理能力） --
+    # {
+    #     "question": "实现 RTP 包乱序重组缓冲区，并支持丢包恢复。",
+    #     "type": "code",
+    #     "category": "webrtc",
+    #     "difficulty": "hard"
+    # },
+    # {
+    #     "question": "设计 WebRTC SFU 架构，支持万人直播。",
+    #     "type": "design",
+    #     "category": "webrtc",
+    #     "difficulty": "expert"
+    # },
+    # {
+    #     "question": "实现一个简化版 Jitter Buffer，并分析其延迟控制策略。",
+    #     "type": "code",
+    #     "category": "webrtc",
+    #     "difficulty": "hard"
+    # },
+    # # -- CUDA 并行计算能力（检测是否遗忘底层并行计算能力） --
+    # {
+    #     "question": "使用 CUDA 实现矩阵乘法，并利用 Shared Memory 优化性能。",
+    #     "type": "code",
+    #     "category": "cuda",
+    #     "difficulty": "hard"
+    # },
+    # {
+    #     "question": "实现 CUDA Reduction 算法，并分析 Warp Divergence 问题。",
+    #     "type": "code",
+    #     "category": "cuda",
+    #     "difficulty": "hard"
+    # },
+    # {
+    #     "question": "设计一个 GPU 推理服务器，实现动态 Batch 调度。",
+    #     "type": "design",
+    #     "category": "gpu",
+    #     "difficulty": "expert"
+    # },
+    # # -- LLM 推理能力（检测是否遗忘大模型推理能力） --
+    # {
+    #     "question": "实现 Transformer 的 Multi-Head Attention，并分析时间复杂度。",
+    #     "type": "code",
+    #     "category": "llm",
+    #     "difficulty": "hard"
+    # },
+    # {
+    #     "question": "实现 KV Cache，并分析其对推理性能的影响。",
+    #     "type": "code",
+    #     "category": "llm",
+    #     "difficulty": "hard"
+    # },
+    # {
+    #     "question": "设计一个支持 1000 QPS 的大模型推理服务。",
+    #     "type": "design",
+    #     "category": "llm",
+    #     "difficulty": "expert"
+    # },
+    # {
+    #     "question": "分析 vLLM Continuous Batching 的实现原理，并给出简化代码。",
+    #     "type": "code",
+    #     "category": "vllm",
+    #     "difficulty": "expert"
+    # },
+    # # --   AI Infra
+    # {
+    #     "question": "设计一个支持 LoRA 热加载的大模型推理平台。",
+    #     "type": "design",
+    #     "category": "ai_infra",
+    #     "difficulty": "expert"
+    # },
+    # {
+    #     "question": "设计一个多租户 GPU 资源调度系统。",
+    #     "type": "design",
+    #     "category": "ai_infra",
+    #     "difficulty": "expert"
+    # },
+    # {
+    #     "question": "实现一个基于 Qdrant 的 RAG 检索系统。",
+    #     "type": "code",
+    #     "category": "rag",
+    #     "difficulty": "hard"
+    # },
+    # {
+    #     "question": "设计一个企业级 Agent 平台，支持 Tool Calling、Memory 和 Workflow。",
+    #     "type": "design",
+    #     "category": "agent",
+    #     "difficulty": "expert"
+    # },
+    # # --    大模型训练
+    # {
+    #     "question": "实现 LoRA 微调算法，并解释 Rank 参数对训练效果的影响。",
+    #     "type": "code",
+    #     "category": "training",
+    #     "difficulty": "hard"
+    # },
+    # {
+    #     "question": "设计 Teacher-Student 蒸馏流程，将 70B 模型能力迁移到 4B 模型。",
+    #     "type": "design",
+    #     "category": "distillation",
+    #     "difficulty": "expert"
+    # },
+    # {
+    #     "question": "实现 DPO 训练流程，并比较 DPO 与 RLHF 的区别。",
+    #     "type": "code",
+    #     "category": "alignment",
+    #     "difficulty": "expert"
+    # },
 ]
 
 
@@ -495,7 +663,8 @@ def evaluate_general_ability(
         logger.info(f"\r  [{label}] General: {i+1}/{len(GENERAL_BENCHMARK_QUESTIONS)}, {len(generated) / (time.time() - start_time):.2f} tokens/s")
         del inputs, outputs  # 及时删除中间变量，释放显存
     #logger.info("", flush=True)
-
+    torch.cuda.synchronize()  # 等待GPU操作完成
+    torch.cuda.empty_cache()  # 清空 GPU 缓存，释放显存占用
     n = len(GENERAL_BENCHMARK_QUESTIONS)
     avg_len = sum(lengths) / n if n > 0 else 0.0
     trunc_rate = truncated / n if n > 0 else 0.0
@@ -546,21 +715,24 @@ def collect_generation_samples(
     """
     model.eval()
     results = []
-    show_samples= [];
-    # 随机选择 samples[:n_show]
-    if len(samples) > n_show:
-        show_samples = random.sample(samples, n_show)
-    else:        show_samples = samples[:n_show]
+    # show_samples= [];
+    # 随机选择 samples 中的 n_show 条进行展示，保证每次评测报告的样本多样性；如果样本数量不足 n_show，则展示全部样本。
+    # if len(samples) > n_show:
+    #     show_samples = random.sample(samples, n_show);
+    #     #show_samples = random.sample(samples, n_show)
+    # else:        show_samples = samples[:n_show]
 
    # gc.collect()  # 手动触发 Python 垃圾回收，释放未使用的内存
     #torch.cuda.empty_cache()  # 清空 PyTorch GPU 缓存，释放显存占用
     logger.info(f">>> 收集 {label} 模型生成样本 ，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
-    for i, example in enumerate(show_samples):
+    for i, example in enumerate(samples):
         question = _get_question(example)
         messages = [
             {"role": "system", "content": config.SYSTEM_PROMPT},
             {"role": "user", "content": question},
         ]
+        if config.EVAL_SHOW_SAMPLES:
+            logging.info(f"  [{label}] Generating sample {i+1}/{len(samples)}: {question}");
         # start_time 用于计算生成速度（tokens/s），包含前向传播和解码时间，反映实际使用体验
         start_time = time.time();
         text = tokenizer.apply_chat_template(
@@ -585,6 +757,8 @@ def collect_generation_samples(
             "reference": _get_reference(example),
             "generated": generated,
         })
+        if config.EVAL_SHOW_SAMPLES:
+            logging.info(f"  [{label}] Generated sample {i+1}/{len(samples)} (len={len(generated)}) : {generated} ");
         logging.info(f" [{label}] Gen: {i+1}/{n_show}, {len(generated) / (time.time() - start_time):.2f} tokens/s")
         del inputs, outputs  # 及时删除中间变量，释放显存
     # print("", flush=True)  # 换行
@@ -756,7 +930,14 @@ def evaluate_with_llm_judge(
     logger.info("  Samples:  %d (max)", config.EVAL_LLM_JUDGE_MAX_SAMPLES)
 
     n_samples = min(config.EVAL_LLM_JUDGE_MAX_SAMPLES, len(lora_samples))
-    samples_to_score = lora_samples[:n_samples]
+
+    samples_to_score = [];
+    # 随机选择 n_samples 条 LoRA 样本进行评估，保证每次评测报告的样本多样性；如果样本数量不足 n_samples，则评估全部样本。
+    if len(lora_samples) > n_samples:
+        samples_to_score = random.sample(lora_samples, n_samples);
+        #samples_to_score = random.sample(lora_samples, n_samples)
+    else:        samples_to_score = lora_samples[:n_samples];
+    # samples_to_score = lora_samples[:n_samples]
     # 匹配 base 样本
     base_map = {}
     for b in base_samples:
@@ -793,7 +974,7 @@ def evaluate_with_llm_judge(
             max_retries=config.EVAL_LLM_JUDGE_MAX_RETRIES,
         )
 
-        time.sleep(0.5)  # 避免 API 限流
+        ##time.sleep(0.5)  # 避免 API 限流
 
         # ── Base 单独评估（无基线对比，Base 本身就是基线） ──
         prompt_base = _build_judge_prompt(
@@ -1331,7 +1512,7 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     indices = rng.sample(range(n_total), n_eval)
     eval_samples = [dataset[i] for i in indices]
     logger.info("评估数据集: %d / %d 条样本（随机种子=42）", n_eval, n_total)
-
+    logger.info(f">>> 选取的评估样本示例: {_get_question(eval_samples[0])}");
     # ---- 加载 Base 模型 ----
     logger.info("--- 加载 Base 模型: %s ---", config.MODEL_ID)
     logger.info(f">>> 加载Base 模型 ，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
@@ -1343,6 +1524,33 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
         trust_remote_code=True,
         attn_implementation="flash_attention_2",  # ← 这行最关键
     )
+    base_model = base_model.to('cuda')
+    logger.info("\n=== 显存与加速诊断 ===")
+    logger.info(f"Flash Attention 2 已安装: {is_flash_attn_2_available()}")
+    logger.info(f"模型注意力实现: {base_model.config._attn_implementation}")
+
+    # 检查参数是否都在 GPU
+    on_cpu = sum(1 for p in base_model.parameters() if p.device.type == 'cpu')
+    on_cuda = sum(1 for p in base_model.parameters() if p.device.type == 'cuda')
+    # 打印模型所有参数的设备分布
+    logger.info(f"参数分布: CPU = {on_cpu}, GPU = {on_cuda}")
+    # 打印模型所有参数的设备分布详情
+    for i, (name, param) in enumerate(base_model.named_parameters()):
+        logger.info(f"i={i}, 参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB");
+
+    # 哪些参数是冻结的基础模型参数，哪些是 LoRA adapter 参数，并打印它们的设备分布详情，确认所有参数都在 GPU 上
+    # total_params = 0
+    # adapter_params = 0
+    # for name, param in base_model.named_parameters():
+    #     total_params += param.numel()
+    #     if "lora" in name.lower():
+    #         adapter_params += param.numel()
+    #         logger.info(f"LoRA 参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB")
+    #     else:
+    #         logger.info(f"基础模型参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB")
+    # logger.info(f"总参数量: {total_params:,}, LoRA 参数量: {adapter_params:,} ({adapter_params / total_params * 100:.2f}%)")    
+
+ 
     #print(f"加载Base 模型完成，当前 GPU 显存占用: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
     #logger.info(f">>> 加载Base 模型完成 ，当前 GPU 显存占用: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
     # 打印此时剩余的显存（单位：GB）
@@ -1350,7 +1558,23 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     # reserved = torch.cuda.memory_reserved() / 1024**3
     logger.info(f">>> 加载Base 模型完成 ，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     #print(f"释放后显存占用: 已分配 {allocated:.2f} GB, 预分配 {reserved:.2f} GB")
-    time.sleep(1)  # 确保显存占用稳定
+    #time.sleep(1)  # 确保显存占用稳定
+    # 
+    show_samples= [];
+    _n_show = max(config.EVAL_LLM_JUDGE_MAX_SAMPLES, 5) if config.EVAL_LLM_JUDGE_ENABLED else 5
+    # 随机选择 samples 中的 n_show 条进行展示，保证每次评测报告的样本多样性；如果样本数量不足 n_show，则展示全部样本。
+    if len(eval_samples) > _n_show:
+        show_samples = random.sample(eval_samples, _n_show);
+        #show_samples = random.sample(eval_samples, _n_show)
+    else:        show_samples = eval_samples[:_n_show]
+    #logger.info(f"-----------------------------------------------------------------------------------------------")
+    # 打印选中的展示样本的 instruction 字段，确认它们是随机且多样的
+    logger.info(f"------------------------------展示样本（共 {len(show_samples)} 条）--------------------------")
+    for i, s in enumerate(show_samples):
+        # instr = s.get("instruction", "N/A")
+        instr = _get_question(s);
+        logger.info(f"样本 {i + 1}: {instr[:50]}{'...' if len(instr) > 50 else ''}")
+    logger.info(f"-------------------------------------------------------------------------------------------")
     # ---- Base 评估 ----
     ppl_results = []
     if config.EVAL_PPL_ENABLED:
@@ -1385,11 +1609,11 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     base_gen_samples = []
     _need_gen = config.EVAL_GEN_SAMPLES_ENABLED or config.EVAL_LLM_JUDGE_ENABLED
     if _need_gen:
-        _n_show = max(config.EVAL_LLM_JUDGE_MAX_SAMPLES, 5) if config.EVAL_LLM_JUDGE_ENABLED else 5
+        #_n_show = max(config.EVAL_LLM_JUDGE_MAX_SAMPLES, 5) if config.EVAL_LLM_JUDGE_ENABLED else 5
         logger.info(">>> 收集 Base 模型生成样本 (n=%d)%s",
                     _n_show, " (供 LLM-as-Judge)" if not config.EVAL_GEN_SAMPLES_ENABLED else "")
         base_gen_samples = collect_generation_samples(
-            base_model, tokenizer, config, eval_samples, "Base", n_show=_n_show
+            base_model, tokenizer, config, show_samples, "Base", n_show=_n_show
         )
         logger.info(f">>> 收集 Base 模型生成样本 ，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
@@ -1429,6 +1653,18 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
     logger.info(f"加载 LoRA 模型完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     # # 强制把所有参数移到 GPU（有些模型可能默认在 CPU 上，导致评估时频繁数据迁移）
     lora_model = lora_model.to('cuda')
+    # 哪些参数是冻结的基础模型参数，哪些是 LoRA adapter 参数，并打印它们的设备分布详情，确认所有参数都在 GPU 上
+    total_params = 0
+    adapter_params = 0
+    for name, param in lora_model.named_parameters():
+        total_params += param.numel()
+        if "lora" in name.lower():
+            adapter_params += param.numel()
+            logger.info(f"LoRA 参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB")
+        else:
+            logger.info(f"基础模型参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB")
+    logger.info(f"总参数量: {total_params:,}, LoRA 参数量: {adapter_params:,} ({adapter_params / total_params * 100:.2f}%)")
+    logger.info(f"当前 GPU 显存占用: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
     # ---- LoRA 评估 ----
     if config.EVAL_PPL_ENABLED:
         logger.info(">>> Perplexity 评估")
@@ -1462,7 +1698,7 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
         logger.info(">>> 收集 LoRA 模型生成样本 (n=%d)%s",
                     _n_show, " (供 LLM-as-Judge)" if not config.EVAL_GEN_SAMPLES_ENABLED else "")
         lora_gen_samples = collect_generation_samples(
-            lora_model, tokenizer, config, eval_samples, "LoRA", n_show=_n_show
+            lora_model, tokenizer, config, show_samples, "LoRA", n_show=_n_show
         )
         logger.info(f">>>  LoRA 模型生成样本收集 完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
@@ -1476,7 +1712,11 @@ def run_evaluation(config: Config, tokenizer: PreTrainedTokenizer) -> None:
         logger.info(f">>> 通用能力评估完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     else:
         logger.info(">>> 通用能力评估: 已禁用 (eval.general_ability.enabled=false)")
-
+    del lora_base  # 只保留 LoRA 模型，释放基座模型占用的显存
+    gc.collect()  # 手动触发 Python 垃圾回收
+    torch.cuda.synchronize()  # 确保所有 GPU 操作完成
+    torch.cuda.empty_cache()
+    logger.info(f"释放 LORA  模型显存后，当前 GPU 显存已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
     # ---- LLM-as-Judge 评估 ----
     llm_judge_results = evaluate_with_llm_judge(config, base_gen_samples, lora_gen_samples)
     logger.info(f">>> LLM-as-Judge 评估完成，当前 GPU 显存 已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB, 预分配 {torch.cuda.memory_reserved() / 1024**3:.2f} GB")

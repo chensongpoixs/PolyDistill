@@ -37,6 +37,9 @@ from trl import DataCollatorForCompletionOnlyLM, SFTTrainer
 from poly_distill.config import Config
 from poly_distill.dataset import load_and_prepare_data
 
+from transformers.utils import is_flash_attn_2_available
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -1406,6 +1409,67 @@ def train(config: Config) -> tuple:
         if not isinstance(cb, PrinterCallback)
     ]
 
+    # 打印训练配置摘要（包含模型参数量、训练样本数、GPU 状态等），便于用户在训练开始前确认设置。
+    logger.info("训练配置摘要:")
+    logger.info(f"  Model: {config.MODEL_ID} | Total Params: {total_params / 1e6:.1f}M | "
+                f"Trainable Params: {trainable_params / 1e6:.1f}M")
+    logger.info(f"  Train Samples: {len(train_dataset)} | Val Samples: {len(eval_dataset) if eval_dataset else 0}")
+    logger.info(f"  LoRA Config: r={config.LORA_R}, alpha={config.LORA_ALPHA}, "
+                f"target_modules={config.LORA_TARGET_MODULES}")
+    logger.info(f"  Training Args: epochs={config.NUM_TRAIN_EPOCHS}, "
+                f"batch_size={config.PER_DEVICE_BATCH_SIZE}, "
+                f"grad_accum_steps={config.GRADIENT_ACCUMULATION_STEPS}, "
+                f"learning_rate={config.LEARNING_RATE}, "
+                f"weight_decay={config.WEIGHT_DECAY}, "
+                f"max_grad_norm={config.MAX_GRAD_NORM}, "
+                f"lr_scheduler={config.LR_SCHEDULER_TYPE}")
+    # logger.info(f"  GPU: {results['gpu'].get('name', 'N/A')} | "
+    #             f"Memory: {results['gpu'].get('memory_used_gb', 'N/A')}GB / "
+    #             f"{results['gpu'].get('memory_total_gb', 'N/A')}GB")
+    # 打印模型详细参数信息（如 hidden_size, num_layers, num_attention_heads等等），帮助用户了解模型结构。
+    logger.info(f"  Model Config: hidden_size={getattr(model.config, 'hidden_size', 'N/A')}, "
+                f"num_layers={getattr(model.config, 'num_hidden_layers', 'N/A')}, "
+                f"num_attention_heads={getattr(model.config, 'num_attention_heads', 'N/A')}");
+    # 打印模型详细参数使用内存估算（以便用户评估显存需求），例如:
+    #   - LoRA adapter 估算: trainable_params × 4 bytes (BF16)
+    #   - 全模型 估算: total_params × 4 bytes (BF16)
+    adapter_memory_gb = trainable_params * 4 / (1024**3)
+    full_model_memory_gb = total_params * 4 / (1024**3)
+    logger.info(f"  Model Memory: Adapter={adapter_memory_gb:.2f}GB, Full={full_model_memory_gb:.2f}GB")
+    logger.info(f"  Gradient Checkpointing: {'Enabled' if config.GRADIENT_CHECKPOINTING else 'Disabled'}");
+    logger.info("\n=== 显存与加速诊断 ===")
+    logger.info(f"Flash Attention 2 已安装: {is_flash_attn_2_available()}")
+    logger.info(f"模型注意力实现: {model.config._attn_implementation}")
+
+    # # 检查参数是否都在 GPU
+    # on_cpu = sum(1 for p in model.parameters() if p.device.type == 'cpu')
+    # on_cuda = sum(1 for p in model.parameters() if p.device.type == 'cuda')
+    # # 打印模型所有参数的设备分布
+    # logger.info(f"参数分布: CPU = {on_cpu}, GPU = {on_cuda}")
+    # # 打印Base 模型所有参数的设备分布详情
+    # for i, (name, param) in enumerate(model.named_parameters()):
+    #     logger.info(f"i={i}, 参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB");
+    # 打印Base 模型所有参数的设备分布详情，确认冻结的基础模型参数确实在 GPU 上
+    base_params = [p for p in model.parameters() if not p.requires_grad];
+    base_on_cpu = sum(1 for p in base_params if p.device.type == 'cpu')
+    base_on_cuda = sum(1 for p in base_params if p.device.type == 'cuda')
+    logger.info(f"基础模型参数分布: CPU = {base_on_cpu}, GPU = {base_on_cuda}");
+    # # 打印Base 模型所有参数的设备分布详情  
+    for i, (name, param) in enumerate(model.named_parameters()):
+        logger.info(f"i={i}, 参数: {name}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB");
+    # 打印Base 模型所有参数的设备分布详情，确认冻结的基础模型参数确实在 GPU 上
+    # 打印 LORA adapter 的参数分布详情，确认 adapter 参数确实在 GPU 上
+    adapter_params = [p for p in model.parameters() if p.requires_grad];
+    adapter_on_cpu = sum(1 for p in adapter_params if p.device.type == 'cpu')
+    adapter_on_cuda = sum(1 for p in adapter_params if p.device.type == 'cuda')
+    logger.info(f"LoRA Adapter 参数分布: CPU = {adapter_on_cpu}, GPU = {adapter_on_cuda}");
+    # 哪些参数是冻结的基础模型参数，哪些是 LoRA adapter 参数，并打印它们的设备分布详情，确认所有参数都在 GPU 上
+    for i, (name, param) in enumerate(model.named_parameters()):
+        param_type = "Adapter" if param.requires_grad else "Base"
+        logger.info(f"i={i}, 参数: {name}, 类型: {param_type}, 设备: {param.device}, 大小: {param.numel() * param.element_size() / 1024**2:.2f} MB");
+     # 打印Base 模型所有参数的设备分布详情 （包含冻结的基础模型参数和 LoRA adapter 参数），确认所有参数都在 GPU 上
+     
+    logger.info("训练即将开始，输出将以 YOLOv5 风格实时更新（每 epoch 一行），请耐心等待...")
     # ---- 6. 开始训练 ----
     logger.info("Start SFT training...")
     trainer.train()
@@ -1475,5 +1539,11 @@ def train(config: Config) -> tuple:
             logger.warning(
                 "best_metric=None — 可能所有 eval 轮次均未改善，或 EarlyStopping 未触发 save"
             )
+    # 训练结束 释放 GPU 内存（尤其是大模型），确保产物保存不受 OOM 影响  释放CUDA内存，避免保存模型时 OOM
+    #trainer._move_model_to_device("cpu");
+    del trainer.model;
 
-    return trainer, tokenizer, exp_dir
+    #trainer.model.cpu();
+    torch.cuda.synchronize()  # 等待GPU操作完成
+    torch.cuda.empty_cache();
+    return  tokenizer, exp_dir

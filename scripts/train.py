@@ -126,7 +126,7 @@ if __name__ == "__main__":
     else:
         # 完整流水线：训练 → 快速推理 → 全量评测
         from poly_distill.trainer import train
-        trainer, tokenizer, exp_dir = train(cfg)
+        tokenizer, exp_dir = train(cfg)
         quick_compare(cfg, tokenizer)
 
         if not args.skip_eval:

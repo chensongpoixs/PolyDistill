@@ -461,6 +461,7 @@ eval:
   # 通用能力评估：20 道跨领域问题（数学/科学/逻辑/中文/代码），检测灾难性遗忘。
   general_ability:
     enabled: true
+  show_samples: false  # 是否在评测报告中展示生成样本（默认 true）
 
   # ---- LLM-as-Judge（大模型打分评估） ----
   # 启用后，将生成样本发送给外部大模型做 5 维度三方对比质量评分。
@@ -471,7 +472,7 @@ eval:
     model: "gemma-4-31B-it-Q4_0"                            # 裁判模型名称
     api_key: "sk-xxxxxxxxxxxxxxxxxxxxxxxx"                  # API Key（留空则从环境变量 LLM_JUDGE_API_KEY 读取）
     max_samples: 50                                         # 最大评估样本数（避免 API 费用过高）
-    timeout: 600                                            # 请求超时秒数（默认 10 分钟）
+    timeout: 60000                                            # 请求超时秒数（默认 10 分钟）
     temperature: 0.0                                        # 采样温度（0=贪婪解码，评估推荐低温）
     max_tokens: 10240                                        # 最大生成 token 数
     top_p: 1.0                                              # nucleus 采样
